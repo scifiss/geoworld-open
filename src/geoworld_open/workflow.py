@@ -39,7 +39,6 @@ def run_workflow(
     operators: Iterable[ScientificOperator] | None = None,
 ) -> WorkflowResult:
     """Run each deterministic operator once in a transparent sequence."""
-    np.random.seed(scenario.seed)
     arrays: dict[str, np.ndarray] = {}
     trace: list[dict[str, Any]] = []
     context: dict[str, Any] = {"scenario": scenario}
@@ -62,4 +61,3 @@ def run_workflow(
             }
         )
     return WorkflowResult(scenario=scenario, arrays=arrays, trace=trace)
-

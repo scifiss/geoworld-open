@@ -1,0 +1,81 @@
+schema_version: "2.0"
+metadata:
+  name: structural_multifault_v2
+  description: Explicit four-layer section with a fold, normal fault, and reverse fault.
+seed: 20260809
+grid:
+  nx: 180
+  ndepth: 120
+  dx_m: 10.0
+  ddepth_m: 5.0
+  x_origin_m: 0.0
+  depth_origin_m: 0.0
+facies:
+  - id: shale
+    code: 1
+    label: Shale
+  - id: sand
+    code: 2
+    label: Sand
+layers:
+  - id: upper_shale
+    name: Upper shale
+    facies_id: shale
+    thickness_m: 150.0
+    porosity_fraction: 0.08
+    is_reservoir: false
+  - id: upper_sand
+    name: Upper reservoir sand
+    facies_id: sand
+    thickness_m: 130.0
+    porosity_fraction: 0.24
+    is_reservoir: true
+  - id: middle_shale
+    name: Middle shale
+    facies_id: shale
+    thickness_m: 140.0
+    porosity_fraction: 0.10
+    is_reservoir: false
+  - id: lower_sand
+    name: Lower reservoir sand
+    facies_id: sand
+    thickness_m: 180.0
+    porosity_fraction: 0.18
+    is_reservoir: true
+structures:
+  - kind: fold
+    id: regional_fold
+    amplitude_m: 22.0
+    wavelength_m: 1400.0
+    phase_deg: 15.0
+    x_origin_m: 0.0
+  - kind: fault
+    id: east_normal_fault
+    x_position_m: 650.0
+    reference_depth_m: 260.0
+    dip_deg: 62.0
+    dip_direction: positive_x
+    throw_m: 45.0
+    displacement: normal
+    displaced_side: positive_x
+  - kind: fault
+    id: west_reverse_fault
+    x_position_m: 1350.0
+    reference_depth_m: 330.0
+    dip_deg: 55.0
+    dip_direction: negative_x
+    throw_m: 25.0
+    displacement: reverse
+    displaced_side: negative_x
+structural_method:
+  method_id: analytic_source_depth_v1
+  operation_order: listed
+  boundary_behavior: clip_to_grid
+outputs:
+  save_arrays: true
+  save_dataset_metadata: true
+  save_diagnostic_figure: true
+assumptions:
+  - Layer thicknesses and porosity are explicit synthetic inputs.
+  - Structures are analytic coordinate transforms applied in listed order.
+  - No geological priors, property inference, elastic physics, or seismic physics are used.
