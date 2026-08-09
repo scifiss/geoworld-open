@@ -1,0 +1,10 @@
+repos:
+  - repo: local
+    hooks:
+      - id: geoworld-open-secret-scan
+        name: GeoWorld Open repository secret scan
+        entry: python scripts/scan_secrets.py
+        language: system
+        pass_filenames: true
+        types: [text]
+

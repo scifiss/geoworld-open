@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*~
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# Generated runs and local application state
+runs/
+.streamlit/
+.streamlit_runs/
+*.log
+*.sqlite
+*.sqlite3
+*.db
+
+# Archives and scientific binaries are opt-in only
+*.zip
+*.tar
+*.tar.gz
+*.npy
+*.npz
+*.sgy
+*.segy
+*.las
+
+# Deliberate public documentation assets
+!docs/assets/*.png
