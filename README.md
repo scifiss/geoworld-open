@@ -2,7 +2,7 @@
 
 GeoWorld Open is a small, inspectable Python sandbox for turning a typed YAML scenario into a deterministic 2D synthetic earth model, elastic properties, seismic response, AVO angle stacks, and reproducibility artifacts.
 
-> GeoWorld Open is a reproducible educational and research sandbox for typed synthetic geoscience workflows. The production GeoWorld platform includes proprietary orchestration, knowledge assets, configuration, evaluation, and operational capabilities not included here.
+> GeoWorld Open is a reproducible educational and research sandbox for typed synthetic geoscience workflows. The production GeoWorld platform includes private orchestration, knowledge assets, configuration, evaluation, and operational capabilities not included here.
 
 ![GeoWorld Open CO2 monitoring result](docs/assets/co2_monitoring_summary.png)
 
@@ -102,4 +102,4 @@ Read [Limitations](docs/limitations.md) and [Security](SECURITY.md) before adapt
 
 ## License
 
-GeoWorld Open is licensed under the [Apache License 2.0](LICENSE). The license applies only to this repository and does not grant rights to the separate proprietary GeoWorld production platform.
+GeoWorld Open is licensed under the [Apache License 2.0](LICENSE). The license applies only to this repository and does not grant rights to the separate private GeoWorld production platform.

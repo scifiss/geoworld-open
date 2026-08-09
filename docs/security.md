@@ -7,8 +7,8 @@ Repository safeguards include:
 - a deny-oriented `.gitignore` for environment files, credentials, databases, archives, run directories, and large scientific binaries;
 - a placeholder-only `.env.example`;
 - a local pre-commit secret scan and matching CI job;
+- a pinned, checksum-verified Gitleaks CI scan over complete Git history;
 - dependency review for pull requests;
 - tests that reject imports from the private `geoworld` package and common production service dependencies.
 
 These controls reduce risk but do not replace review. Before publishing a change, inspect the complete staged diff, run the scanner, and verify that fixtures and images contain no private or licensed data.
-

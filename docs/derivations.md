@@ -1,6 +1,6 @@
 # Equation Derivations and Provenance
 
-The source in this repository was authored independently for GeoWorld Open. It is not copied from the proprietary GeoWorld implementation. The equations below are standard published approximations and are written in direct NumPy form so their assumptions can be reviewed.
+The source in this repository was authored independently for GeoWorld Open. It is not copied from the private GeoWorld implementation. The equations below are standard published approximations and are written in direct NumPy form so their assumptions can be reviewed.
 
 ## Ricker wavelet
 
@@ -42,4 +42,3 @@ This linearized form is useful for a bounded qualitative example. It is not an e
 - Ricker, N. (1953). Wavelet contraction, wavelet expansion, and the control of seismic resolution. *Geophysics*, 18(4), 769-792.
 
 The references identify the standard scientific basis; no reference text or software source is reproduced here.
-
