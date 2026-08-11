@@ -2,7 +2,8 @@
 
 ## Decision status
 
-**Status:** ready for architecture review; no implementation is authorized.
+**Status:** **APPROVED / FROZEN** for Gate 2 implementation. Gate 2 has not
+started in this closeout.
 
 This is the canonical Gate 1 decision record. The earlier
 [world-kernel architecture](world-kernel-architecture.md) and
@@ -18,6 +19,11 @@ representation, evidence, and derivation. Optional generic layers add space,
 dynamics, epistemics, physics, scale, and planning. Domain packages supply all
 scientific meaning, rules, methods, and calibrated intelligence.
 
+The eight concept meanings, major semantic boundaries, and dependency direction
+are frozen. Method signatures and serialization details remain implementation
+decisions. Changing the minimal kernel requires an implementation-discovered
+cross-domain contradiction, not convenience or speculative completeness.
+
 ## A. Final minimal kernel
 
 The universal kernel contains exactly eight major concepts.
@@ -27,10 +33,10 @@ The universal kernel contains exactly eight major concepts.
 | `World` | Registry/graph boundary for identities and state history | Yes | Yes | Its referenced state history evolves | None required | Without it, identities, relations, and states have no coherent scope |
 | `Entity` | Stable semantic subject that can persist through change | Yes | Yes | Its existence/validity can be time-scoped | May reference zero or more representations | Without it, a fault, heart, or robot collapses into whichever array currently depicts it |
 | `Relation` | Typed, directed or undirected edge between subjects | Yes | Usually; validity may be scoped | Yes, through validity/state bindings | Optional topology representation | Without it, many-to-many structure and qualified occupancy become ad hoc fields |
-| `Representation` | Replaceable computational depiction of a subject, relation, field, or evidence item | Yes | Identity/version is persistent | Data/version may be state-scoped | Array, grid, mesh, graph, image, point cloud, table, or latent form | Without it, semantic identity becomes coupled to xarray, meshes, or one simulator |
-| `Field` | Semantic quantity or classification plus bindings to subject, support, state, and values | Yes | Definition is persistent | Bindings/values may vary | Values are carried by a Representation | Without it, physical properties become anonymous arrays or entity attributes |
-| `WorldState` | Immutable, time-scoped assertion about a World with lineage | Yes | State record is persistent/immutable | It describes a time or interval | References scalar values and Field/Representation bindings | Without it, persistent identity and changing conditions cannot be separated |
-| `Observation` | Evidence acquired or generated about a subject or state | Yes | Evidence record is immutable | Acquisition and valid times are explicit | Has its own Representation | Without it, measurements and synthetic responses are mistaken for physical truth |
+| `Representation` | Version-addressable computational depiction of a subject, relation, Field, or evidence item | Yes | Stable identity plus immutable versions | Version applicability may be state-scoped | Array, grid, mesh, graph, image, point cloud, table, or latent form | Without it, semantic identity becomes coupled to one data structure and lineage can silently change |
+| `Field` | Reusable `FieldDefinition` plus state/subject-specific `FieldBinding` records | Yes | Definition is persistent | Bindings/values may vary | Binding identifies an immutable Representation version | Without it, quantity semantics and actual values collapse into anonymous arrays or entity attributes |
+| `WorldState` | Immutable, time-scoped asserted, hypothetical, simulated, or synthetic-ground-truth state with lineage | Yes | State record is persistent/immutable | It describes a time or interval | References scalar values and exact Field/Representation versions | Without it, persistent identity and changing conditions cannot be separated |
+| `Observation` | Evidence acquired or generated about an explicitly typed semantic subject | Yes | Evidence record is immutable | Acquisition and valid times are explicit | Has its own immutable/versioned Representation | Without it, measurements and synthetic responses are mistaken for physical truth |
 | `Provenance` | Source and derivation lineage for states, evidence, representations, and estimates | Yes | Append-only records | Events have time; records do not mutate | References methods, inputs, outputs, and artifacts | Without it, reproducibility and epistemic distinctions cannot be audited |
 
 ### Minimalism decisions
@@ -65,7 +71,7 @@ material, mechanics, transport, or thermodynamics component classes.
 
 ```mermaid
 flowchart LR
-    W[World] --> WS[WorldState t0]
+    W[World] --> WS[WorldState t0 with explicit epistemic role]
     WS --> OM[Observation model]
     OM --> O[Observation]
     O --> IN[Interpretation / inference]
@@ -100,16 +106,23 @@ flowchart TD
     RG --> R[Relation]
     R --> E
     SH --> S[WorldState]
-    S --> VB[Value and Field bindings]
-    VB --> F[Field definition]
-    VB --> RP[Representation]
-    E --> RP
-    R --> RP
-    O[Observation] --> E
-    O --> OR[Evidence Representation]
+    S --> FB[FieldBinding]
+    FB --> FD[FieldDefinition]
+    FB --> RV[RepresentationVersion]
+    RI[Representation identity] --> RV
+    RI --> SR[SubjectRef]
+    O[Observation] --> SR
+    OR[Evidence RepresentationVersion] --> SR
+    O --> OR
+    SR -. typed reference .-> E
+    SR -. typed reference .-> R
+    SR -. typed reference .-> FD
+    SR -. typed reference .-> S
+    SR -. typed reference .-> SP[Support]
     P[Provenance] --> S
-    P --> RP
+    P --> RV
     P --> O
+    P --> SR
 ```
 
 Canonical invariants:
@@ -117,10 +130,60 @@ Canonical invariants:
 1. `Fault F1` is not its triangulated surface, voxel mask, or simulator faces.
 2. `Formation A` is an Entity; porosity and pressure are Fields.
 3. Entity and relation IDs survive representation replacement and state change.
-4. A WorldState references Field bindings; it is not exactly one dataset.
+4. A WorldState references `FieldBinding` records and exact Representation
+   versions; it is not exactly one dataset.
 5. An Observation has evidence data and acquisition semantics; it is not state.
 6. Interpretations and beliefs retain links to observations, methods, uncertainty,
    and provenance and cannot silently become observations or asserted truth.
+
+### Typed semantic subject references
+
+`SubjectRef` is a small discriminated reference record, not a ninth kernel
+concept and not a new universal graph. It contains a `subject_kind` and exactly
+one stable identifier, such as:
+
+```text
+entity_id
+relation_id
+field_definition_id
+world_state_id
+support_id
+representation_version_id
+process_or_event_result_id
+```
+
+Observation, Representation, Provenance, and Interpretation use this mechanism
+to identify what they concern while preserving reference integrity. Supported
+subject kinds are explicit and extensible by reviewed contracts; arbitrary
+record-to-record edges are not allowed.
+
+Examples:
+
+- a pressure gauge observes a pressure Field at a well Support;
+- a seismic survey provides evidence about a WorldState and its spatial Support;
+- a fault interpretation concerns a Fault Entity and a surface Representation
+  version;
+- a production measurement observes a rate Field associated with a Well.
+
+### Representation identity and immutable versions
+
+A Representation has a stable semantic identity and one or more immutable,
+uniquely addressable versions. Once a Representation version participates in a
+WorldState or Provenance record, its content and content identity cannot change.
+
+```text
+fault_surface
+    version 1
+    version 2
+        derived_from version 1
+```
+
+Each version records or references its content identity/checksum, format, subject,
+Support, ReferenceFrame, Scale, validity, and Provenance. A WorldState and every
+derivation identify the exact version used. This applies equally to grids,
+meshes, surfaces, point sets, xarray-backed arrays, images, tables, and learned
+latent representations. The contract requires addressability and immutability,
+not a heavyweight version-control system.
 
 ### Relation mechanics
 
@@ -182,7 +245,7 @@ Entity or Field
 | `Support` | Domain on which geometry or values are defined: point set, curve, surface, volume, cells, mesh elements, voxel region, time interval, or categories |
 | `SpatialSupport` | Spatial specialization of Support; not a separate universal root abstraction |
 | `Geometry` | Shape and position payload/semantics carried by a Representation; not Entity identity |
-| `Representation` | Descriptor and data/artifact reference binding geometry or Field values to support/frame/scale |
+| `Representation` | Stable identity whose immutable versions bind geometry or Field values to subject/support/frame/scale and exact data/artifact content |
 
 Geometry is not promoted to the minimal kernel because not every Entity needs
 geometry and because geometry always arrives through a representation. Support
@@ -202,7 +265,7 @@ Examples:
 
 ## E. State architecture
 
-Persistent identity includes World, Entity, durable Relation, Field definition,
+Persistent identity includes World, Entity, durable Relation, FieldDefinition,
 ReferenceFrame, and Representation identity/version records. Time-scoped content
 includes entity/relation validity, Field values, occupancy, pressure, saturation,
 temperature, stress, pose, velocity, and production conditions.
@@ -213,9 +276,10 @@ A WorldState contains or references:
 state_id and world_id
 valid time or interval
 parent and derivation state IDs
+epistemic role: asserted, hypothetical, simulated, or synthetic ground_truth
 active entity/relation validity
-scalar and Field bindings
-state-scoped Representation versions
+scalar values and FieldBinding records
+exact immutable Representation versions
 constraints and residuals
 uncertainty/epistemic status references
 assumptions and Provenance
@@ -227,12 +291,67 @@ abstraction: static bindings have broad validity; dynamic bindings have narrower
 validity or multiple versions. Separate static/dynamic classes would duplicate
 semantics and make properties difficult to reclassify.
 
-### Field and xarray decision
+A WorldState is the structured state being reasoned about; it does not
+automatically claim objectively known physical truth. Its explicit role prevents
+epistemic promotion by accident:
 
-A Field definition declares quantity/classification semantics, units, value kind,
-physical rank, admissible supports, missingness, and domain constraint references.
-A Field binding connects the definition to a subject, WorldState, Support, Scale,
-and value Representation.
+| Situation | Correct record/role |
+|---|---|
+| Synthetic experiment with known constructed state | WorldState with `ground_truth` role |
+| Forward-simulated scenario | WorldState with `simulated` role |
+| Field reservoir model adopted for a study | WorldState with `asserted` role |
+| Alternative field scenario | WorldState with `hypothetical` role |
+| Seismic inversion result | `EstimatedState` linked to evidence and method |
+| Ensemble posterior | `BeliefState` over estimates/hypotheses |
+
+`ground_truth` is valid only where truth exists by construction. Field subsurface
+models must not be named or treated as `TrueWorldState`. An estimate may be used
+to construct a later asserted scenario only through an explicit, provenance-
+recorded decision; its original inferential identity remains intact.
+
+### FieldDefinition and FieldBinding
+
+The approved `Field` concept has two underlying records. `FieldDefinition`
+declares reusable quantity or classification semantics independently of any one
+subject, time, support, or array:
+
+```text
+FieldDefinition
+    field_id
+    quantity or classification semantics
+    canonical unit
+    value kind
+    physical rank
+    admissible supports
+    missingness semantics
+    domain constraint references
+```
+
+For example, pressure may be continuous, scalar, and canonically measured in Pa.
+That definition does not mean pressure in one formation at one time.
+
+`FieldBinding` associates a definition with an actual state occurrence and exact
+data:
+
+```text
+FieldBinding
+    field_definition reference
+    typed subject reference
+    WorldState reference
+    Support reference
+    Scale reference
+    immutable Representation version reference
+    validity
+    Provenance reference
+```
+
+For example, a binding can associate pressure with `Formation_A`, state `t1`, a
+reservoir-grid Support, and `pressure_array_r17`. One FieldDefinition can be
+reused across many subjects, states, supports, scales, and representations.
+`FieldBinding` is a record/mechanism beneath Field and WorldState, not a ninth
+major kernel concept.
+
+### Field and xarray decision
 
 The strong hypothesis is **approved**:
 
@@ -254,7 +373,7 @@ Four concepts are required across the kernel and epistemic layer:
 
 | Concept | Meaning | Layer |
 |---|---|---|
-| `Observation` | Acquired or generated evidence with acquisition time, support, representation, noise/quality, and provenance | Kernel |
+| `Observation` | Acquired or generated evidence with typed SubjectRef targets, acquisition time, support, immutable Representation version, noise/quality, and provenance | Kernel |
 | `Interpretation` | A semantic claim connecting evidence to an entity, region, event, or hypothesis | Epistemic |
 | `EstimatedState` | A state estimate derived from evidence/model with method, uncertainty, and validation lineage | Epistemic |
 | `BeliefState` | Distribution or alternatives over estimates/hypotheses | Epistemic |
@@ -266,7 +385,7 @@ posteriors may also represent belief.
 Examples retain distinct status:
 
 ```text
-physical/as-asserted porosity Field
+physical/as-asserted porosity FieldBinding in a WorldState
 neutron-log Observation
 log-derived porosity Interpretation or Estimated Field
 seismic-inverted porosity EstimatedState
@@ -425,7 +544,7 @@ a future private migration decision, not permission to copy code publicly.
 | Existing private abstraction | Decision | Gate 1 disposition |
 |---|---|---|
 | Strict/extensible JSON-safe base models | KEEP | Strong serialization and namespaced-extension foundation |
-| `QuantitySpec` | KEEP / EXTEND | Keep value, unit, and uncertainty; distinguish scalar value from Field binding |
+| `QuantitySpec` | KEEP / EXTEND | Keep value, unit, and uncertainty; distinguish scalar value from FieldBinding |
 | `VariableDefinition` | REFACTOR | Become quantity/Field semantics; aliases and full registries remain private |
 | `CoordinateDefinition` | REFACTOR | Separate axis metadata from ReferenceFrame, Support, and transforms |
 | `ScientificContext` | REPLACE as aggregate | Split assumptions, validity, quality, uncertainty, and provenance records |
@@ -458,8 +577,8 @@ Explicit answers:
    semantic state. It remains valuable as an immutable numerical Field bundle.
 2. **Where do entities and relations live?** In the persistent World registry and
    typed relation graph, with state-scoped validity where required.
-3. **How does state reference Fields?** Through Field bindings that identify
-   definition, subject, support, representation, scale, time, and provenance.
+3. **How does state reference Fields?** Through FieldBinding records that identify
+   FieldDefinition, subject, Support, Representation version, Scale, time, and Provenance.
 4. **How do representations relate to state?** A representation identity/version
    may be persistent or state-scoped; WorldState references the applicable version.
 5. **What becomes persistent World?** Entity, relation, Field-definition, frame,
@@ -487,7 +606,7 @@ unmerged on `feature/phase2-scientific-foundation`.
 | Namespace-derived RNG/SeedSequence | KEEP | Deterministic execution infrastructure with seed lineage and order independence |
 | Structural geology kernels | KEEP / REPOSITION | Public geoscience domain implementations |
 | Facies definitions/array | KEEP / ADAPT | Domain classification definitions plus categorical Field representation |
-| Porosity | KEEP / ADAPT | Field binding with subject, support, scale, units, validity, and provenance |
+| Porosity | KEEP / ADAPT | FieldBinding with subject, Support, Scale, units, validity, and Provenance |
 | Reservoir masks | REPLACE / REPOSITION | Explicit Region/Role or derived selection Field; reservoir meaning is contextual |
 | Fault masks | KEEP / ADAPT | Derived Representation/Support of Fault, never Fault identity |
 | Displacement fields | KEEP / ADAPT | State-scoped Field with frame, sign, support, scale, and method |
@@ -509,7 +628,7 @@ One GeoSpec must no longer mean world, state, experiment, and execution at once.
 | Stable conceptual spec | Responsibility |
 |---|---|
 | `WorldSpec` | Persistent entities, relations, frames, and representation declarations |
-| `StateSpec` | Initial/current values, Field bindings, occupancy, time, and constraints |
+| `StateSpec` | Initial/current values, FieldBinding records, occupancy, time, and constraints |
 | `ObservationSpec` | Acquisition design, observed subjects/supports, noise, quality, and missingness |
 | `ExperimentSpec` | Scientific question, compared states, interventions, observations, outputs, acceptance metrics |
 | `ExecutionPlan` | Compiled capabilities, dependencies, deterministic resources, seeds, data movement, artifacts |
@@ -545,26 +664,29 @@ clean-room records, and independently derived tests.
 
 ## O. Recommended implementation architecture
 
-Implementation should be **private-first for migration, contract-first for
-architecture, and independently public for reference science**.
+Implementation should be **contract-first, validated by a thin private
+compatibility spike, and independently public for reference science**. Complete
+private production migration is not a public-release prerequisite.
 
 ### Private production path
 
-The private repository is the production source of truth and already contains
-world interfaces and consumers. After Gate 1 approval, it should first prototype
-the minimum contracts behind compatibility adapters:
+The private repository remains the production source of truth and provides real
+requirements against which Gate 2 contracts can be tested. Gate 2 should use only
+a narrow, disposable compatibility/prototype slice:
 
 ```text
 private World/Entity/Relation registries
-    -> immutable WorldState and Field bindings
+    -> immutable WorldState and FieldDefinition/FieldBinding records
     -> representation adapters for existing xarray GeoState
     -> observation and provenance adapters
     -> capability/execution adapters
-    -> existing production services
+    -> one representative existing product boundary
 ```
 
-This minimizes migration risk and exposes where abstract contracts fail against
-real geoscience workflows. It must not require an immediate package-tree rewrite.
+This exposes where abstract contracts fail against real geoscience workflows
+without initiating broad private migration, changing production behavior, or
+requiring a package-tree rewrite. Private migration may continue independently
+after the first GeoWorld Open release.
 
 ### Public reference path
 
@@ -597,15 +719,16 @@ contracts recreates the current array-centric architecture.
 
 | Gate | Objective | Required outputs | Entry condition | Exit condition |
 |---|---|---|---|---|
-| **Gate 2: Kernel contract prototype** | Validate the smallest contracts and invariants | Private migration prototype, public-safe contract sketch, semantic fixtures for reservoir/heart/robot, identity/state/representation tests | Gate 1 approved | No geoscience dependency in core; reference integrity and epistemic distinctions pass |
-| **Gate 3: Scientific-foundation integration design and branch** | Adapt preserved Phase 2 through Gate 2 contracts | Dedicated integration branch, xarray Field adapter, structural entities/representations, deterministic execution/provenance mapping | First Gate 2 vertical slice works | Phase 2 science/tests preserved; no array, GeoSpec, or DAG becomes World semantics |
-| **Gate 4: Deep geoscience physics and observations** | Add published rock/fluid physics, seismic/AVA, monitoring, inversion, uncertainty, and multiscale behavior | Explicit PhysicsModels, validity, constraints, observations, estimates, benchmark evidence, clean-room records | Gates 2 and 3 jointly approved | Scientific validation, applicability, provenance, and uncertainty gates pass |
-| **Gate 5: Planning, product integration, and release boundary** | Add experiment planning and approved agent/product adapters without weakening deterministic science | Agent/Goal/Action interfaces, guarded planning loop, private intelligence adapters, public release audit | Gate 4 accepted | Agents cannot bypass validity/provenance; security, licensing, boundary, reproducibility, and product checks pass |
+| **Gate 2: Minimal World-Kernel Contract Prototype** | Prove identity through evidence and lineage without deep domain physics | Public-safe kernel prototype; thin private compatibility spike; Entity/Relation/WorldState; FieldDefinition/FieldBinding; immutable Representation versions; Observation; Provenance; lightweight spatial concepts; xarray adapter; reservoir/heart/robot fixtures | Gate 1 approved/frozen | Reference integrity, immutability, epistemic role, versioning, cross-domain fixtures, and tests pass without geoscience dependencies in core |
+| **Gate 3: Preserved Phase 2 Adaptation** | Prove real scientific output travels through the kernel | Separate integration path adapting xarray conventions, RNG, provenance, structural kernels, tests, clean-room records, and diagnostics; semantic adaptation of GeoSpec, execution context, DAG, facies, porosity, masks, and displacement | First Gate 2 slice works | Preserved science/tests pass; xarray, DAG, GeoSpec, and masks do not become World or semantic Entity identity |
+| **Gate 4: One Vertical World Demonstration** | Build one coherent and impressive faulted-subsurface world | Formations, Fault, Well, Brine, ReservoirRegion; typed relations; grid/surface/trajectory representations; bounded Field set such as facies/porosity/pressure/temperature; one transparent Process from `t0` to `t1`; at least one appropriate Observation; full Provenance | Gates 2 and 3 jointly approved | One reproducible end-to-end world proves Entity, Relation, Representation, Field, WorldState, Process, Observation, and Provenance together |
+| **Gate 5: Presentation and Release Audit** | Prepare GeoWorld Open for public visibility | Professional visualization and hero figure; architecture diagram; high-quality positively positioned README; Product/Blog links; scientific, provenance, reproducibility, IP-boundary, clean-room, secret/Gitleaks, license, CI, fresh-install, and content audits | Gate 4 accepted | All release audits pass and the public/private product distinction is accurate |
 
 ### Gate 2-Gate 3 iteration loop
 
 1. Gate 2 implements one thin contract slice: persistent entities/relations,
-   one WorldState, one Field binding, one xarray Representation, and provenance.
+   one WorldState, one FieldDefinition/FieldBinding, one immutable xarray-backed
+   Representation version, one Observation, and Provenance.
 2. Gate 3 maps one preserved Phase 2 structural output through that slice on a
    dedicated integration branch without modifying the preserved commit.
 3. Failures are classified as contract defects, adapter defects, or domain
@@ -618,13 +741,39 @@ contracts recreates the current array-centric architecture.
 This is iterative contract validation, not permission to merge Phase 2 during
 Gate 1 or to let Phase 2 implementation details dictate the kernel.
 
+### Gate 4 scope boundary
+
+The recommended flagship is a faulted subsurface World containing two or more
+Formations, one Fault, one Well, brine material, and one ReservoirRegion. It
+demonstrates `INTERSECTS`, `PENETRATES`, `PART_OF`, and `OCCUPIES`; grid/volume,
+structural, and trajectory representations; a bounded Field set; one transparent
+state-changing Process; and one Observation pathway.
+
+Gate 4 does **not** require broad reservoir simulation, geomechanics,
+geochemistry, seismic/AVA, inversion, tensor completion, uncertainty framework,
+multiscale framework, or agent planning before release.
+
+### Gate 5 positioning and post-release growth
+
+Gate 5 should lead with positive positioning such as:
+
+> **A scientific world-model architecture for the subsurface.**
+
+It distinguishes the private-powered GeoWorld Product from the public GeoWorld
+Open reference implementation without leading with exclusions. After the first
+public release, later versions may progressively add petrophysics, minerals and
+fluids, rock physics, reservoir processes, production, geomechanics,
+geochemistry, seismic/AVO, monitoring, uncertainty, multiscale, inversion,
+learned world models, and agent planning. None is an initial-release prerequisite.
+
 ## Q. Architecture risks
 
 | Risk | Failure mode | Mitigation/gate evidence |
 |---|---|---|
 | Over-abstraction | Dozens of empty types delay science | Eight-concept kernel; require two real consumers before promoting adjacent concepts |
 | Ontology bloat | Universal package learns Formation, Tumor, Robot, or every relation | Opaque type IDs in core; domain packages own types/rules; public allowlist review |
-| Duplicate semantic/numerical state | WorldState and xarray diverge or both claim authority | Field-binding adapter, immutable lineage, canonical semantic/numerical consistency tests |
+| Duplicate semantic/numerical state | WorldState and xarray diverge or both claim authority | FieldDefinition/FieldBinding adapter, immutable lineage, canonical semantic/numerical consistency tests |
+| Mutable representation lineage | A reused representation ID silently points to changed scientific inputs | Stable identity, immutable content-addressable versions, exact version references in WorldState and Provenance |
 | Coordinate ambiguity | Arrays align by name while frames/datums/directions differ | Explicit ReferenceFrame, Support, transforms, axis semantics, validity, and provenance |
 | Scale ambiguity | Core/log/seismic/grid values are compared as equivalent | Scale metadata and explicit transformation operators with loss/uncertainty lineage |
 | Observation/truth confusion | Measurements, inversions, or synthetic outputs overwrite state | Separate Observation, Interpretation, EstimatedState, BeliefState, and asserted WorldState |
@@ -658,7 +807,28 @@ capabilities, observations are evidence, and agents operate above BeliefState.
 
 ### Gate decision
 
-Gate 1 is ready for human review. It does not authorize Gate 2, Phase 2
-integration, PhysicsModel implementation, rock physics, seismic/AVO, reservoir
-simulation, AI planning, deployment changes, visibility changes, licensing
-changes, README repositioning, or public/private package dependencies.
+Gate 1 architecture is **APPROVED / FROZEN**.
+
+The eight-concept kernel frozen for Gate 2 implementation is:
+
+```text
+World
+Entity
+Relation
+Representation
+Field
+WorldState
+Observation
+Provenance
+```
+
+Adjacent spatial, epistemic, dynamics, physics, scale, and planning concepts
+remain layered contracts. The freeze covers concept meanings, major semantic
+boundaries, and dependency direction; it does not freeze method signatures or
+serialization details. A minimal-kernel change requires an implementation-
+discovered cross-domain contradiction.
+
+This approval does not begin Gate 2 or authorize Phase 2 integration,
+PhysicsModel implementation, rock physics, seismic/AVO, reservoir simulation,
+AI planning, deployment changes, visibility changes, licensing changes, README
+repositioning, or public/private package dependencies.
