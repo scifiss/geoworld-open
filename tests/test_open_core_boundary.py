@@ -1,4 +1,5 @@
 import ast
+import re
 from pathlib import Path
 
 
@@ -35,4 +36,38 @@ def test_public_source_does_not_import_private_or_production_packages() -> None:
 def test_public_tree_has_no_production_configuration_files() -> None:
     forbidden_names = {"render.yaml", "docker-compose.yml", ".env", "geoworld.sqlite3"}
     found = [str(path.relative_to(ROOT)) for path in ROOT.rglob("*") if path.name in forbidden_names]
+    assert found == []
+
+
+def test_world_kernel_has_no_domain_or_legacy_workflow_dependency() -> None:
+    failures: list[str] = []
+    world_root = ROOT / "src" / "geoworld_open" / "world"
+    for path in world_root.glob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            module = None
+            if isinstance(node, ast.ImportFrom):
+                module = node.module
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name.startswith("geoworld_open.") and not alias.name.startswith(
+                        "geoworld_open.world"
+                    ):
+                        failures.append(f"{path.name} imports {alias.name}")
+            if module and module.startswith("geoworld_open.") and not module.startswith(
+                "geoworld_open.world"
+            ):
+                failures.append(f"{path.name} imports {module}")
+    assert failures == []
+
+
+def test_world_kernel_source_contains_no_domain_entity_vocabulary() -> None:
+    world_root = ROOT / "src" / "geoworld_open" / "world"
+    forbidden = {"formation", "fault", "reservoir", "heart", "robot", "geology"}
+    found: list[str] = []
+    for path in world_root.glob("*.py"):
+        source = path.read_text(encoding="utf-8").casefold()
+        for word in forbidden:
+            if re.search(rf"\b{re.escape(word)}\b", source):
+                found.append(f"{path.name}: {word}")
     assert found == []
