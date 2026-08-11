@@ -49,6 +49,40 @@ def _index_unique(
     return result
 
 
+def _is_ordered_subset(values: tuple[str, ...], candidates: tuple[str, ...]) -> bool:
+    """Return whether values occur in candidate order without requiring every axis."""
+    positions = {value: index for index, value in enumerate(candidates)}
+    try:
+        indices = [positions[value] for value in values]
+    except KeyError:
+        return False
+    return indices == sorted(indices)
+
+
+def _validate_acyclic_lineage(
+    records: dict[object, RecordT],
+    parent_keys: Callable[[RecordT], Iterable[object]],
+    label: str,
+) -> None:
+    """Validate a directed parent DAG after parent reference resolution."""
+    visiting: set[object] = set()
+    visited: set[object] = set()
+
+    def visit(key: object) -> None:
+        if key in visiting:
+            raise ValueError(f"{label} lineage contains a cycle")
+        if key in visited:
+            return
+        visiting.add(key)
+        for parent_key in parent_keys(records[key]):
+            visit(parent_key)
+        visiting.remove(key)
+        visited.add(key)
+
+    for record_key in records:
+        visit(record_key)
+
+
 class World(FrozenModel):
     """Persistent semantic scope; numerical data remain in Representations."""
 
@@ -163,6 +197,16 @@ class World(FrozenModel):
                 raise ValueError(
                     f"Support {support.support_id!r} references unknown ReferenceFrame"
                 )
+            if support.reference_frame_id:
+                frame = frames[support.reference_frame_id]
+                if not _is_ordered_subset(
+                    support.dimension_names,
+                    frame.coordinate_names,
+                ):
+                    raise ValueError(
+                        f"Support {support.support_id!r} dimensions must be an ordered "
+                        "subset of its ReferenceFrame axes"
+                    )
             require_provenance(support.provenance_ids, f"Support {support.support_id!r}")
 
         for definition in self.field_definitions:
@@ -188,12 +232,39 @@ class World(FrozenModel):
                 raise ValueError(
                     f"Representation {representation.representation_id!r} references unknown ReferenceFrame"
                 )
+            if representation.support_id:
+                support = supports[representation.support_id]
+                if not _is_ordered_subset(
+                    support.dimension_names,
+                    representation.dimensions,
+                ):
+                    raise ValueError(
+                        f"Representation {representation.representation_id!r} dimensions "
+                        "are incompatible with its Support"
+                    )
+                if (
+                    representation.reference_frame_id is not None
+                    and representation.reference_frame_id != support.reference_frame_id
+                ):
+                    raise ValueError(
+                        f"Representation {representation.representation_id!r} and Support "
+                        "reference different frames"
+                    )
             for parent in representation.derived_from:
                 resolve(parent, f"Representation {representation.representation_id!r}")
             require_provenance(
                 representation.provenance_ids,
                 f"Representation {representation.representation_id!r}",
             )
+
+        _validate_acyclic_lineage(
+            representations,
+            lambda record: (
+                (parent.subject_id, parent.representation_version)
+                for parent in record.derived_from
+            ),
+            "Representation",
+        )
 
         for binding in self.field_bindings:
             if binding.field_definition_id not in definitions:
@@ -213,6 +284,11 @@ class World(FrozenModel):
             representation = representations[
                 (binding.representation.subject_id, binding.representation.representation_version)
             ]
+            if binding.support_id != representation.support_id:
+                raise ValueError(
+                    f"FieldBinding {binding.binding_id!r} and Representation use "
+                    "different Supports"
+                )
             expected_subject = SubjectRef(
                 kind=SubjectKind.FIELD_BINDING,
                 subject_id=binding.binding_id,
@@ -253,6 +329,14 @@ class World(FrozenModel):
                     )
             for representation_ref in state.representation_refs:
                 resolve(representation_ref, f"WorldState {state.state_id!r}")
+            binding_representations = {
+                bindings[binding_id].representation for binding_id in state.field_binding_ids
+            }
+            if not binding_representations.issubset(set(state.representation_refs)):
+                raise ValueError(
+                    f"WorldState {state.state_id!r} must include every FieldBinding "
+                    "Representation version"
+                )
             require_provenance(state.provenance_ids, f"WorldState {state.state_id!r}")
 
         self._validate_state_ancestry(states)
@@ -290,6 +374,12 @@ class World(FrozenModel):
                     raise ValueError(
                         f"Provenance {record.provenance_id!r} references unknown parent"
                     )
+
+        _validate_acyclic_lineage(
+            provenance,
+            lambda record: record.parent_provenance_ids,
+            "Provenance",
+        )
 
         return self
 

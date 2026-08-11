@@ -12,6 +12,8 @@ import xarray as xr
 from geoworld_open.world.models import (
     FieldBinding,
     FieldDefinition,
+    Missingness,
+    PositiveDirection,
     Provenance,
     ReferenceFrame,
     Representation,
@@ -38,9 +40,104 @@ _VARIABLE_ATTRS = {
 }
 
 
+def _canonical_json_value(value: object, *, path: str) -> object:
+    if isinstance(value, np.generic):
+        return _canonical_json_value(value.item(), path=path)
+    if isinstance(value, np.ndarray):
+        if value.dtype.hasobject:
+            raise TypeError(f"{path} contains an unsupported object-dtype array")
+        return _canonical_json_value(value.tolist(), path=path)
+    if isinstance(value, Mapping):
+        if any(not isinstance(key, str) for key in value):
+            raise TypeError(f"{path} metadata mapping keys must be strings")
+        return {
+            key: _canonical_json_value(item, path=f"{path}.{key}")
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [
+            _canonical_json_value(item, path=f"{path}[{index}]")
+            for index, item in enumerate(value)
+        ]
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        if not np.isfinite(value):
+            raise TypeError(f"{path} metadata float must be finite")
+        return value
+    raise TypeError(f"{path} contains unsupported metadata type {type(value).__name__}")
+
+
 def _canonical_attrs(attrs: Mapping[object, object]) -> bytes:
-    payload = {str(key): attrs[key] for key in sorted(attrs, key=str)}
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode()
+    if any(not isinstance(key, str) for key in attrs):
+        raise TypeError("xarray metadata keys must be strings for canonical hashing")
+    payload = {
+        key: _canonical_json_value(attrs[key], path=f"attrs.{key}")
+        for key in attrs
+    }
+    return json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode()
+
+
+def _canonical_array(values: np.ndarray) -> np.ndarray:
+    if values.dtype.hasobject:
+        raise TypeError("xarray adapter does not accept object-dtype values")
+    dtype = values.dtype.newbyteorder("<")
+    normalized = np.asarray(values, dtype=dtype)
+    if np.issubdtype(dtype, np.floating):
+        normalized = np.array(normalized, copy=True)
+        normalized[np.isnan(normalized)] = np.nan
+    elif np.issubdtype(dtype, np.complexfloating):
+        normalized = np.array(normalized, copy=True)
+        normalized.real[np.isnan(normalized.real)] = np.nan
+        normalized.imag[np.isnan(normalized.imag)] = np.nan
+    return np.ascontiguousarray(normalized)
+
+
+def _is_ordered_subset(values: tuple[str, ...], candidates: tuple[str, ...]) -> bool:
+    positions = {value: index for index, value in enumerate(candidates)}
+    try:
+        indices = [positions[value] for value in values]
+    except KeyError:
+        return False
+    return indices == sorted(indices)
+
+
+def _validate_variable_values(
+    values: np.ndarray,
+    definition: FieldDefinition,
+    variable_name: str,
+) -> None:
+    if values.dtype.hasobject:
+        raise TypeError(f"variable {variable_name!r} has unsupported object dtype")
+    if definition.missingness == Missingness.MASK:
+        raise ValueError(
+            f"variable {variable_name!r} requests MASK missingness, which requires "
+            "an explicit mask representation beyond the Gate-2 adapter"
+        )
+
+    if np.issubdtype(values.dtype, np.inexact):
+        missing = np.isnan(values)
+        infinite = np.isinf(values)
+    elif np.issubdtype(values.dtype, np.datetime64) or np.issubdtype(
+        values.dtype, np.timedelta64
+    ):
+        missing = np.isnat(values)
+        infinite = np.zeros(values.shape, dtype=bool)
+    else:
+        missing = np.zeros(values.shape, dtype=bool)
+        infinite = np.zeros(values.shape, dtype=bool)
+
+    if np.any(infinite):
+        raise ValueError(f"variable {variable_name!r} contains infinite values")
+    if definition.missingness == Missingness.FORBID and np.any(missing):
+        raise ValueError(
+            f"variable {variable_name!r} contains missing values forbidden by FieldDefinition"
+        )
 
 
 def dataset_content_sha256(dataset: xr.Dataset) -> str:
@@ -50,9 +147,7 @@ def dataset_content_sha256(dataset: xr.Dataset) -> str:
     for category, variables in (("coord", dataset.coords), ("data", dataset.data_vars)):
         for name in sorted(variables):
             array = variables[name]
-            values = np.asarray(array.values)
-            if values.dtype.hasobject:
-                raise TypeError("xarray adapter does not accept object-dtype values")
+            values = _canonical_array(np.asarray(array.values))
             digest.update(category.encode())
             digest.update(name.encode())
             digest.update(json.dumps(array.dims).encode())
@@ -127,9 +222,13 @@ def create_xarray_bundle(
     binding_ids = [binding.binding_id for binding in variable_bindings.values()]
     if len(binding_ids) != len(set(binding_ids)):
         raise ValueError("each FieldBinding may map to only one Dataset variable")
-    if tuple(dataset.sizes) != support.dimension_names:
-        raise ValueError("Dataset dimension order does not match Support")
-    if tuple(dataset.sizes.values()) != support.shape:
+    dataset_dimensions = tuple(dataset.sizes)
+    if not _is_ordered_subset(support.dimension_names, dataset_dimensions):
+        raise ValueError("Dataset dimensions do not contain Support dimensions in order")
+    if any(
+        dataset.sizes[dimension] != size
+        for dimension, size in zip(support.dimension_names, support.shape)
+    ):
         raise ValueError("Dataset shape does not match Support")
     reserved_dataset = _DATASET_ATTRS.intersection(dataset.attrs)
     if reserved_dataset:
@@ -163,8 +262,10 @@ def create_xarray_bundle(
 
         definition = definitions[binding.field_definition_id]
         variable = normalized[variable_name]
-        if tuple(variable.dims) != support.dimension_names:
-            raise ValueError(f"variable {variable_name!r} dimensions do not match Support")
+        if not _is_ordered_subset(support.dimension_names, tuple(variable.dims)):
+            raise ValueError(
+                f"variable {variable_name!r} dimensions do not contain Support dimensions in order"
+            )
         reserved_variable = _VARIABLE_ATTRS.intersection(variable.attrs)
         if reserved_variable:
             raise ValueError(
@@ -175,6 +276,7 @@ def create_xarray_bundle(
             raise ValueError(
                 f"variable {variable_name!r} unit conflicts with FieldDefinition"
             )
+        _validate_variable_values(np.asarray(variable.values), definition, variable_name)
         variable.attrs.update(
             {
                 "units": definition.unit,
@@ -187,6 +289,45 @@ def create_xarray_bundle(
         subjects.append(
             SubjectRef(kind=SubjectKind.FIELD_BINDING, subject_id=binding.binding_id)
         )
+
+    if reference_frame is not None:
+        if not _is_ordered_subset(
+            support.dimension_names,
+            reference_frame.coordinate_names,
+        ):
+            raise ValueError("Support dimensions are incompatible with ReferenceFrame axes")
+        frame_axes = {
+            name: (unit, direction)
+            for name, unit, direction in zip(
+                reference_frame.coordinate_names,
+                reference_frame.units,
+                reference_frame.positive_directions,
+            )
+        }
+        for dimension in support.dimension_names:
+            if dimension not in normalized.coords:
+                continue
+            coordinate = normalized.coords[dimension]
+            if coordinate.ndim != 1 or coordinate.dims != (dimension,):
+                raise ValueError(
+                    f"coordinate {dimension!r} must be one-dimensional on its own axis"
+                )
+            expected_unit, direction = frame_axes[dimension]
+            supplied_unit = coordinate.attrs.get("units")
+            if supplied_unit is not None and supplied_unit != expected_unit:
+                raise ValueError(
+                    f"coordinate {dimension!r} unit conflicts with ReferenceFrame"
+                )
+            coordinate.attrs["units"] = expected_unit
+            coordinate_values = np.asarray(coordinate.values)
+            if np.issubdtype(coordinate_values.dtype, np.number) and coordinate_values.size > 1:
+                if not np.all(np.isfinite(coordinate_values)):
+                    raise ValueError(f"coordinate {dimension!r} must contain finite values")
+                differences = np.diff(coordinate_values)
+                if direction == PositiveDirection.INCREASING and not np.all(differences > 0):
+                    raise ValueError(f"coordinate {dimension!r} must be strictly increasing")
+                if direction == PositiveDirection.DECREASING and not np.all(differences < 0):
+                    raise ValueError(f"coordinate {dimension!r} must be strictly decreasing")
 
     normalized.attrs.update(
         {
@@ -211,7 +352,7 @@ def create_xarray_bundle(
         media_type="application/x-xarray-dataset",
         support_id=support.support_id,
         reference_frame_id=(reference_frame.frame_id if reference_frame else None),
-        dimensions=support.dimension_names,
+        dimensions=tuple(normalized.sizes),
         derived_from=derived_from,
         provenance_ids=(provenance.provenance_id,),
     )

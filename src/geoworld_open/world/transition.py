@@ -10,6 +10,8 @@ from geoworld_open.world.models import (
     Identifier,
     Provenance,
     Representation,
+    SubjectKind,
+    SubjectRef,
     WorldState,
 )
 from geoworld_open.world.registry import World
@@ -64,6 +66,60 @@ def apply_transition(
         raise ValueError("transition must produce Provenance")
     if any(binding.world_state_id != result.state.state_id for binding in result.field_bindings):
         raise ValueError("transition FieldBindings must belong to the output state")
+
+    provenance_inputs = {
+        ref for record in result.provenance for ref in record.inputs
+    }
+    provenance_outputs = {
+        ref for record in result.provenance for ref in record.outputs
+    }
+    input_ref = SubjectRef(
+        kind=SubjectKind.WORLD_STATE,
+        subject_id=input_state.state_id,
+    )
+    if input_ref not in provenance_inputs:
+        raise ValueError("transition Provenance must identify the input WorldState")
+
+    expected_outputs = {
+        SubjectRef(kind=SubjectKind.WORLD_STATE, subject_id=result.state.state_id),
+        *(
+            SubjectRef(kind=SubjectKind.FIELD_BINDING, subject_id=binding.binding_id)
+            for binding in result.field_bindings
+        ),
+        *(representation.ref for representation in result.representations),
+    }
+    missing_outputs = expected_outputs - provenance_outputs
+    if missing_outputs:
+        raise ValueError(
+            "transition Provenance omits appended outputs: "
+            + ", ".join(sorted(ref.subject_id for ref in missing_outputs))
+        )
+
+    output_records = [
+        (
+            SubjectRef(kind=SubjectKind.WORLD_STATE, subject_id=result.state.state_id),
+            result.state,
+        ),
+        *(
+            (
+                SubjectRef(kind=SubjectKind.FIELD_BINDING, subject_id=binding.binding_id),
+                binding,
+            )
+            for binding in result.field_bindings
+        ),
+        *((representation.ref, representation) for representation in result.representations),
+    ]
+    for output_ref, output_record in output_records:
+        describing_ids = {
+            record.provenance_id
+            for record in result.provenance
+            if output_ref in record.outputs
+        }
+        if not describing_ids.intersection(output_record.provenance_ids):
+            raise ValueError(
+                f"transition output {output_ref.subject_id!r} must cite Provenance "
+                "that identifies it as an output"
+            )
 
     updated = world.with_records(
         field_bindings=result.field_bindings,

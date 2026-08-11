@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from datetime import datetime
 from enum import Enum
@@ -48,6 +49,64 @@ class FrozenModel(BaseModel):
         allow_inf_nan=False,
         validate_default=True,
     )
+
+
+class TemporalValue(FrozenModel):
+    """One explicit absolute timestamp or finite relative/model time."""
+
+    absolute_time: datetime | None = None
+    relative_value: float | None = None
+    relative_unit: NonEmptyStr | None = None
+
+    @field_validator("absolute_time")
+    @classmethod
+    def validate_absolute_time(cls, value: datetime | None) -> datetime | None:
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise ValueError("absolute_time must be timezone-aware")
+        return value
+
+    @field_validator("relative_value")
+    @classmethod
+    def validate_relative_value(cls, value: float | None) -> float | None:
+        if value is not None and not math.isfinite(value):
+            raise ValueError("relative_value must be finite")
+        return value
+
+    @model_validator(mode="after")
+    def validate_mode(self) -> "TemporalValue":
+        has_absolute = self.absolute_time is not None
+        has_relative_value = self.relative_value is not None
+        has_relative_unit = self.relative_unit is not None
+        if has_relative_value != has_relative_unit:
+            raise ValueError("relative_value and relative_unit must be provided together")
+        if has_absolute == has_relative_value:
+            raise ValueError("provide exactly one absolute or relative time mode")
+        return self
+
+
+def _validate_temporal_interval(
+    valid_from: TemporalValue | None,
+    valid_to: TemporalValue | None,
+) -> None:
+    if valid_from is None or valid_to is None:
+        return
+    if (valid_from.absolute_time is None) != (valid_to.absolute_time is None):
+        raise ValueError("valid_from and valid_to must use the same temporal mode")
+    if valid_from.absolute_time is not None:
+        end = valid_to.absolute_time
+        if end is None:
+            raise AssertionError("temporal mode validation failed")
+        if end < valid_from.absolute_time:
+            raise ValueError("valid_to must not precede valid_from")
+        return
+    if valid_from.relative_unit != valid_to.relative_unit:
+        raise ValueError("relative validity bounds must use the same unit")
+    start_value = valid_from.relative_value
+    end_value = valid_to.relative_value
+    if start_value is None or end_value is None:
+        raise AssertionError("relative time validation failed")
+    if end_value < start_value:
+        raise ValueError("valid_to must not precede valid_from")
 
 
 class SubjectKind(str, Enum):
@@ -226,6 +285,15 @@ class Representation(FrozenModel):
     def validate_derived_from(cls, values: tuple[SubjectRef, ...]) -> tuple[SubjectRef, ...]:
         if any(value.kind != SubjectKind.REPRESENTATION for value in values):
             raise ValueError("derived_from entries must reference representation versions")
+        if len(set(values)) != len(values):
+            raise ValueError("derived_from entries must be unique")
+        return values
+
+    @field_validator("dimensions")
+    @classmethod
+    def validate_dimensions(cls, values: tuple[Identifier, ...]) -> tuple[Identifier, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("Representation dimensions must be unique")
         return values
 
     @property
@@ -282,16 +350,15 @@ class FieldBinding(FrozenModel):
     representation: SubjectRef
     support_id: Identifier | None = None
     scale_label: NonEmptyStr | None = None
-    valid_from: datetime | None = None
-    valid_to: datetime | None = None
+    valid_from: TemporalValue | None = None
+    valid_to: TemporalValue | None = None
     provenance_ids: tuple[Identifier, ...] = ()
 
     @model_validator(mode="after")
     def validate_binding(self) -> "FieldBinding":
         if self.representation.kind != SubjectKind.REPRESENTATION:
             raise ValueError("FieldBinding representation must reference an exact version")
-        if self.valid_from and self.valid_to and self.valid_to < self.valid_from:
-            raise ValueError("valid_to must not precede valid_from")
+        _validate_temporal_interval(self.valid_from, self.valid_to)
         return self
 
 
@@ -308,8 +375,8 @@ class WorldState(FrozenModel):
     state_id: Identifier
     world_id: Identifier
     role: WorldStateRole
-    valid_from: datetime | None = None
-    valid_to: datetime | None = None
+    valid_from: TemporalValue | None = None
+    valid_to: TemporalValue | None = None
     parent_state_id: Identifier | None = None
     field_binding_ids: tuple[Identifier, ...] = ()
     representation_refs: tuple[SubjectRef, ...] = ()
@@ -319,8 +386,7 @@ class WorldState(FrozenModel):
     def validate_state(self) -> "WorldState":
         if self.parent_state_id == self.state_id:
             raise ValueError("a WorldState cannot be its own parent")
-        if self.valid_from and self.valid_to and self.valid_to < self.valid_from:
-            raise ValueError("valid_to must not precede valid_from")
+        _validate_temporal_interval(self.valid_from, self.valid_to)
         if any(ref.kind != SubjectKind.REPRESENTATION for ref in self.representation_refs):
             raise ValueError("representation_refs must identify exact representation versions")
         if len(set(self.field_binding_ids)) != len(self.field_binding_ids):
@@ -347,8 +413,8 @@ class Observation(FrozenModel):
     status: ObservationStatus
     subjects: tuple[SubjectRef, ...] = PydanticField(min_length=1)
     representation: SubjectRef
-    acquisition_time: datetime | None = None
-    valid_time: datetime | None = None
+    acquisition_time: TemporalValue | None = None
+    valid_time: TemporalValue | None = None
     quality: MetadataItems = ()
     provenance_ids: tuple[Identifier, ...] = ()
 
@@ -361,6 +427,8 @@ class Observation(FrozenModel):
     def validate_observation(self) -> "Observation":
         if self.representation.kind != SubjectKind.REPRESENTATION:
             raise ValueError("Observation representation must reference an exact version")
+        if self.status == ObservationStatus.ACQUIRED and self.acquisition_time is None:
+            raise ValueError("acquired Observation requires acquisition_time")
         return self
 
 
@@ -380,3 +448,10 @@ class Provenance(FrozenModel):
     @classmethod
     def validate_parameters(cls, value: MetadataItems) -> MetadataItems:
         return _require_unique_metadata(value, owner="Provenance parameter")
+
+    @field_validator("parent_provenance_ids")
+    @classmethod
+    def validate_parent_ids(cls, values: tuple[Identifier, ...]) -> tuple[Identifier, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("parent_provenance_ids must be unique")
+        return values

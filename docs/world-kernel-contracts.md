@@ -74,6 +74,8 @@ The World validates:
 - exact Representation versions used by each WorldState;
 - Observation subjects and evidence Representation;
 - parent-state existence and acyclic lineage;
+- acyclic Representation derivation and Provenance parent lineages;
+- Support/frame, Representation/Support, and FieldBinding/Representation consistency;
 - synthetic-only `ground_truth` states.
 
 The core intentionally does not decide whether a relation such as `INTERSECTS`
@@ -88,7 +90,10 @@ record and may identify the first through `derived_from`.
 
 No storage or version-control service is implemented. The invariant is that any
 content used by scientific state or lineage is immutable or uniquely
-version-addressable.
+version-addressable. The in-memory xarray adapter verifies content against the
+Representation hash. For an external artifact URI, the descriptor and checksum
+are contract-immutable, but storage-level immutability requires the artifact
+layer to content-address or independently verify the referenced bytes.
 
 ## WorldState roles
 
@@ -101,6 +106,20 @@ WorldState roles are:
 
 The World rejects `ground_truth` in a field-origin World. Inversion and posterior
 concepts remain future epistemic-layer records rather than WorldState roles.
+
+## Bounded temporal values
+
+`TemporalValue` is a supporting value record, not a ninth kernel concept. It
+represents exactly one of:
+
+- an absolute, timezone-aware timestamp; or
+- finite relative/model time with an explicit nonempty unit.
+
+There is no implicit conversion between absolute and relative time, and relative
+interval bounds must use the same unit. WorldState and FieldBinding validity use
+this record. Observation acquisition and valid times use it as well; acquired
+Observations require acquisition time, while synthetic evidence may carry
+relative/model time associated with a simulated state.
 
 ## Observation versus state
 
@@ -127,13 +146,33 @@ input data, hashes normalized coordinates/values/metadata, stores a private copy
 and returns deep copies so callers cannot mutate versioned content. Array rank
 does not determine physical tensor rank.
 
+Canonical metadata permits JSON-safe values and string mapping keys; arbitrary
+Python objects and non-string keys are rejected rather than stringified. Hashing
+normalizes numerical byte order while preserving dtype kind and precision, so
+equivalent big- and little-endian values hash equally but float32 and float64 do
+not. Variable ordering is canonical. `Missingness.FORBID` rejects NaN, NaT, and
+infinity. `Missingness.ALLOW` permits NaN/NaT but still rejects infinity.
+`Missingness.MASK` requires a separate explicit mask Representation and is
+therefore rejected by this bounded Gate-2 adapter.
+
+ReferenceFrame and Support records are authoritative for coordinate axis order,
+direction, and units. A Support may use an ordered subset of frame axes. The
+adapter mirrors absent coordinate units, rejects conflicting units, and enforces
+strict monotonicity for numeric `INCREASING` and `DECREASING` coordinates. `UP`
+and `DOWN` remain semantic orientation declarations and do not invent a universal
+array-ordering rule. Extra array dimensions are allowed for components or other
+representation axes; physical tensor rank remains explicit in FieldDefinition.
+
 ## State transitions
 
 `StateTransition` is a Protocol outside the kernel. `apply_transition` consumes
 one WorldState and atomically appends a new state, FieldBindings, Representation
 versions, and Provenance to a newly validated World. It rejects in-place state
 IDs, missing parent lineage, missing Provenance, cross-World output, and bindings
-owned by another state. Persistent Entity identity is preserved.
+owned by another state. Transition Provenance must name the input WorldState and
+every appended state, FieldBinding, and exact Representation version; each output
+must cite one of those transition Provenance records. Persistent Entity identity
+is preserved, and failures leave the original immutable World unchanged.
 
 The test transition is deterministic metadata-only contract evidence, not a
 scientific Process or domain model.
@@ -153,16 +192,17 @@ The private `geoworld/world/**` interfaces were inspected read-only.
 |---|---|---|
 | `GeoEntity` | Entity | Direct ID/type/name mapping; attributes require reviewed domain components rather than kernel copying |
 | `GeoRelationship` | Relation | Direct ID/type/source/target mapping; private attributes and scientific validity rules remain private |
-| `GeoState(dataset)` | WorldState plus xarray Representation bundle and FieldBindings | Compatible; requires an adapter that separates metadata/state identity from Dataset values and makes version immutability explicit |
-| Observation metadata and `GeoObservation(dataset)` | Observation plus evidence Representation | Compatible; acquisition/noise/context become layered metadata rather than kernel fields |
+| `GeoState(dataset)` | WorldState plus xarray Representation bundle and FieldBindings | Structurally compatible; relative time is representable, but an adapter must separate identity/time metadata from Dataset values and make version immutability explicit |
+| Observation metadata and `GeoObservation(dataset)` | Observation plus evidence Representation | Structurally compatible; acquisition/noise/context still require layered adapter mapping |
 | `ProvenanceRecord` | Provenance and Representation artifact references | Compatible for source lineage; richer typed derivation edges require adapter construction |
-| State/observation lineage | WorldState parent, Observation subjects, Provenance | Compatible without information loss for current IDs and capability references |
+| State/observation lineage | WorldState parent, Observation subjects, Provenance | Core IDs and relative/absolute time map structurally; production context and capability details still require explicit adapter policy |
 | `RunManifest` and capability-use records | Provenance plus existing artifact/run records outside the kernel | Compatible; run status/timestamps remain execution metadata, not World semantics |
 
-No cross-domain contradiction was found. Adapter work is required for mutable
-private xarray containers, geometry references, broad context dictionaries, and
-run-centric manifests. Full private migration is not required for public release
-and is not initiated by Gate 2.
+No cross-domain contradiction was found. Gate 2 does not claim complete or
+lossless production migration. Adapter work remains necessary for mutable private
+xarray containers, geometry references, broad context dictionaries, acquisition
+details, capability records, and run-centric manifests. Full private migration is
+not required for public release and is not initiated by Gate 2.
 
 ## Public/private boundary
 
