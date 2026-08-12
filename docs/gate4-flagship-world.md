@@ -52,6 +52,11 @@ fault:fault_f1 INTERSECTS formation:reservoir_sand
 These are scenario statements. Gate 4 does not implement a general topology
 engine.
 
+The Region-scoped `reservoir_selection` FieldBinding names
+`reservoir-region:r1` as its semantic subject, retains the structural grid as
+its numerical Support, and stores Boolean membership in an immutable flagship
+Representation derived from the structural stratigraphic Representation.
+
 ## State lineage
 
 ```text
@@ -96,14 +101,16 @@ p1(x,z) = p0(x,z) + delta_p(x,z)
 
 Every parameter is authored. The change is zero outside the ReservoirRegion.
 This benchmark has no permeability, flow equation, diffusion, mass
-conservation, relative permeability, or fluid transport.
+conservation, relative permeability, capillary pressure, fluid transport,
+history matching, production prediction, or calibration.
 
 ## Synthetic pressure evidence
 
 The Observation samples `p1` at authored Well depths using nearest-cell
-sampling. Explicit Gaussian noise uses the namespace-derived `SeedManager`, an
-authored sigma, and an authored seed. Observation remains evidence, not a
-WorldState and not ground truth.
+sampling. Its table records requested and sampled x/depth coordinates plus the
+explicit noise realization. Explicit Gaussian noise uses the namespace-derived
+`SeedManager`, an authored sigma, and an authored seed. Observation remains
+evidence, not a WorldState and not ground truth.
 
 ```text
 Observation

@@ -19,10 +19,19 @@ DEPTH_X = ("depth", "x")
 @dataclass(frozen=True)
 class PressureObservationRow:
     well_id: str
-    sample_depth_m: float
+    requested_depth_m: float
+    requested_x_m: float
+    sampled_depth_m: float
+    sampled_x_m: float
     model_time_days: float
     true_model_pressure_pa: float
+    noise_pa: float
     observed_pressure_pa: float
+
+    @property
+    def sample_depth_m(self) -> float:
+        """Backward-compatible alias for the actual sampled cell depth."""
+        return self.sampled_depth_m
 
 
 def compute_baseline_fields(
@@ -49,6 +58,15 @@ def compute_baseline_fields(
     ).copy()
     return xr.Dataset(
         data_vars={
+            "reservoir_selection": (
+                DEPTH_X,
+                reservoir.copy(),
+                {
+                    "units": "1",
+                    "long_name": "Boolean membership in the named ReservoirRegion",
+                    "method_id": "explicit_reservoir_region_binding_v1",
+                },
+            ),
             "pressure": (
                 DEPTH_X,
                 pressure,
@@ -78,14 +96,13 @@ def compute_baseline_fields(
 
 def compute_perturbed_pressure_fields(
     flagship_input: CompiledFlagshipInput,
-    structural_dataset: xr.Dataset,
     baseline_dataset: xr.Dataset,
 ) -> xr.Dataset:
     """Apply the explicit Gaussian-like benchmark; no flow equation is solved."""
-    x = np.asarray(structural_dataset.coords["x"].values, dtype=float)
-    depth = np.asarray(structural_dataset.coords["depth"].values, dtype=float)
+    x = np.asarray(baseline_dataset.coords["x"].values, dtype=float)
+    depth = np.asarray(baseline_dataset.coords["depth"].values, dtype=float)
     xx, zz = np.meshgrid(x, depth)
-    reservoir = np.asarray(structural_dataset["reservoir_selection"].values, dtype=bool)
+    reservoir = np.asarray(baseline_dataset["reservoir_selection"].values, dtype=bool)
     config = flagship_input.perturbation
     exponent = -0.5 * (
         ((xx - config.center_x_m) / config.sigma_x_m) ** 2
@@ -128,8 +145,8 @@ def compute_perturbed_pressure_fields(
             ),
         },
         coords={
-            "depth": structural_dataset.coords["depth"],
-            "x": structural_dataset.coords["x"],
+            "depth": baseline_dataset.coords["depth"],
+            "x": baseline_dataset.coords["x"],
         },
     )
 
@@ -162,9 +179,13 @@ def sample_well_pressure(
         rows.append(
             PressureObservationRow(
                 well_id=f"well:{flagship_input.well.id}",
-                sample_depth_m=float(depth[depth_index]),
+                requested_depth_m=float(sample_depth),
+                requested_x_m=flagship_input.well.x_m,
+                sampled_depth_m=float(depth[depth_index]),
+                sampled_x_m=float(x[x_index]),
                 model_time_days=flagship_input.perturbation.model_time_days,
                 true_model_pressure_pa=true_pressure,
+                noise_pa=noise,
                 observed_pressure_pa=true_pressure + noise,
             )
         )
@@ -195,9 +216,13 @@ def observation_csv_bytes(rows: tuple[PressureObservationRow, ...]) -> bytes:
     writer.writerow(
         (
             "well_id",
-            "sample_depth_m",
+            "requested_depth_m",
+            "requested_x_m",
+            "sampled_depth_m",
+            "sampled_x_m",
             "model_time_days",
             "true_model_pressure_pa",
+            "noise_pa",
             "observed_pressure_pa",
         )
     )
@@ -205,9 +230,13 @@ def observation_csv_bytes(rows: tuple[PressureObservationRow, ...]) -> bytes:
         writer.writerow(
             (
                 row.well_id,
-                format(row.sample_depth_m, ".17g"),
+                format(row.requested_depth_m, ".17g"),
+                format(row.requested_x_m, ".17g"),
+                format(row.sampled_depth_m, ".17g"),
+                format(row.sampled_x_m, ".17g"),
                 format(row.model_time_days, ".17g"),
                 format(row.true_model_pressure_pa, ".17g"),
+                format(row.noise_pa, ".17g"),
                 format(row.observed_pressure_pa, ".17g"),
             )
         )

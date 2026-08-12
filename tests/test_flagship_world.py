@@ -19,6 +19,7 @@ from geoworld_open.domains.geoscience.flagship.integration import (
     BASELINE_STATE_ID,
     FLAGSHIP_INPUT_REPRESENTATION_ID,
     PERTURBED_STATE_ID,
+    REGION_SELECTION_BINDING_ID,
     STRUCTURAL_STATE_ID,
     BaselineTransition,
 )
@@ -97,6 +98,22 @@ def test_reservoir_region_and_well_are_entities_distinct_from_arrays() -> None:
     assert trajectory.subjects[0].kind == SubjectKind.ENTITY
     assert trajectory.subjects[0].subject_id == "well:w1"
 
+    region_binding = next(
+        item
+        for item in result.world.field_bindings
+        if item.binding_id == REGION_SELECTION_BINDING_ID
+    )
+    assert region_binding.subject.kind == SubjectKind.ENTITY
+    assert region_binding.subject.subject_id == "reservoir-region:r1"
+    assert region_binding.support_id == "support:structural-grid"
+    assert region_binding.representation.subject_id == "representation:flagship-state-fields"
+    assert region_binding.representation.representation_version == "v1"
+    assert result.baseline_dataset["reservoir_selection"].dtype == np.dtype(bool)
+    np.testing.assert_array_equal(
+        result.baseline_dataset["reservoir_selection"],
+        result.structural_dataset["reservoir_selection"],
+    )
+
 
 def test_flagship_relations_use_persistent_semantic_ids() -> None:
     result = _result()
@@ -109,6 +126,43 @@ def test_flagship_relations_use_persistent_semantic_ids() -> None:
     assert ("well:w1", "geoscience:penetrates", "formation:reservoir_sand") in triples
     assert ("fault:fault_f1", "geoscience:intersects", "reservoir-region:r1") in triples
     assert ("fault:fault_f1", "geoscience:intersects", "formation:reservoir_sand") in triples
+
+
+def test_flagship_authored_relations_match_numerical_geometry() -> None:
+    result = _result()
+    structural = result.structural_dataset
+    reservoir = np.asarray(structural["reservoir_selection"].values, dtype=bool)
+    layer_index = np.asarray(structural["layer_index"].values)
+
+    assert np.any(reservoir)
+    assert np.all(layer_index[reservoir] == 1)
+
+    x = np.asarray(structural.coords["x"].values, dtype=float)
+    depth = np.asarray(structural.coords["depth"].values, dtype=float)
+    well_x_index = int(np.argmin(np.abs(x - result.flagship_input.well.x_m)))
+    trajectory_depth = (
+        (depth >= result.flagship_input.well.top_depth_m)
+        & (depth <= result.flagship_input.well.bottom_depth_m)
+    )
+    assert np.any(reservoir[trajectory_depth, well_x_index])
+
+    fault = next(
+        item for item in result.flagship_input.structural.structures if item.id == "fault_f1"
+    )
+    xx, zz = np.meshgrid(x, depth)
+    source_depth_before_fault = zz - np.asarray(
+        structural["fold_displacement_m"].values,
+        dtype=float,
+    )
+    direction = 1.0 if fault.dip_direction == "positive_x" else -1.0
+    trace_x = fault.x_position_m + direction * (
+        source_depth_before_fault - fault.reference_depth_m
+    ) / np.tan(np.deg2rad(fault.dip_deg))
+    nearest_trace_x = np.argmin(np.abs(xx - trace_x), axis=1)
+    assert any(
+        reservoir[depth_index, x_index]
+        for depth_index, x_index in enumerate(nearest_trace_x)
+    )
 
 
 def test_state_lineage_is_immutable_and_entities_persist() -> None:
@@ -203,8 +257,17 @@ def test_observation_is_evidence_with_correct_sampling_and_lineage() -> None:
     x = result.perturbed_dataset.coords["x"].values
     depth = result.perturbed_dataset.coords["depth"].values
     x_index = int(np.argmin(np.abs(x - result.flagship_input.well.x_m)))
-    for row in result.observation_rows:
-        depth_index = int(np.argmin(np.abs(depth - row.sample_depth_m)))
+    for requested_depth, row in zip(
+        result.flagship_input.observation.sample_depths_m,
+        result.observation_rows,
+    ):
+        depth_index = int(np.argmin(np.abs(depth - row.sampled_depth_m)))
+        assert row.requested_depth_m == requested_depth
+        assert row.requested_x_m == result.flagship_input.well.x_m
+        assert row.sampled_x_m == x[x_index]
+        assert row.noise_pa == pytest.approx(
+            row.observed_pressure_pa - row.true_model_pressure_pa
+        )
         assert row.true_model_pressure_pa == pytest.approx(
             float(result.perturbed_dataset["pressure"].values[depth_index, x_index])
         )
@@ -232,6 +295,42 @@ def test_observation_is_evidence_with_correct_sampling_and_lineage() -> None:
     )
     with pytest.raises(ValidationError):
         evidence.version = "v2"
+
+
+def test_perturbation_provenance_does_not_claim_unused_well_dependency() -> None:
+    result = _result()
+    provenance = next(
+        item
+        for item in result.world.provenance
+        if item.provenance_id == "provenance:flagship-pressure-perturbation"
+    )
+    assert not any(
+        item.kind == SubjectKind.ENTITY and item.subject_id == "well:w1"
+        for item in provenance.inputs
+    )
+    assert any(
+        item.kind == SubjectKind.REPRESENTATION
+        and item.subject_id == FLAGSHIP_INPUT_REPRESENTATION_ID
+        for item in provenance.inputs
+    )
+
+
+def test_outside_reservoir_observation_is_rejected() -> None:
+    with pytest.raises(ValueError, match="lies outside ReservoirRegion"):
+        run_flagship_world(
+            _changed_spec(("observation", "sample_depths_m"), (50.0,))
+        )
+
+
+def test_zero_noise_observation_preserves_model_pressure() -> None:
+    result = run_flagship_world(
+        _changed_spec(("observation", "noise_sigma_pa"), 0.0)
+    )
+    assert all(item.noise_pa == 0.0 for item in result.observation_rows)
+    assert all(
+        item.observed_pressure_pa == item.true_model_pressure_pa
+        for item in result.observation_rows
+    )
 
 
 def test_flagship_run_is_deterministic_and_noise_seed_changes_noise_only() -> None:

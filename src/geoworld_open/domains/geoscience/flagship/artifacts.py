@@ -139,7 +139,8 @@ def _assumptions_markdown(result: FlagshipWorldResult) -> str:
         f"- Center is `({perturbation.center_x_m:g}, {perturbation.center_depth_m:g}) m`.",
         f"- Sigma is `({perturbation.sigma_x_m:g}, {perturbation.sigma_depth_m:g}) m`.",
         "- This is not reservoir simulation or pressure diffusion.",
-        "- No mass conservation, permeability, relative permeability, or fluid transport is modeled.",
+        "- No mass conservation, permeability, relative permeability, capillary pressure, or fluid transport is modeled.",
+        "- No history matching, production prediction, or calibration is performed.",
         "",
         "## Observation assumptions",
         "",
@@ -294,7 +295,7 @@ def write_flagship_artifacts(
         "limitations": [
             "Synthetic educational benchmark, not field interpretation.",
             "Pressure change is analytic and is not reservoir simulation or diffusion.",
-            "No permeability, mass conservation, fluid transport, or calibrated physics.",
+            "No permeability, capillary pressure, mass conservation, fluid transport, history matching, or calibrated physics.",
         ],
     }
     _write_json(manifest_path, manifest)

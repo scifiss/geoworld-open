@@ -1,3 +1,4 @@
+import csv
 import json
 from pathlib import Path
 
@@ -54,6 +55,26 @@ def test_flagship_artifacts_are_complete_and_semantically_verified(tmp_path) -> 
         "state:flagship-baseline",
         "state:flagship-perturbed",
     ]
+    with (output / "observations" / "well-pressure.csv").open(
+        encoding="utf-8",
+        newline="",
+    ) as stream:
+        rows = list(csv.DictReader(stream))
+    assert tuple(rows[0]) == (
+        "well_id",
+        "requested_depth_m",
+        "requested_x_m",
+        "sampled_depth_m",
+        "sampled_x_m",
+        "model_time_days",
+        "true_model_pressure_pa",
+        "noise_pa",
+        "observed_pressure_pa",
+    )
+    assert [float(row["requested_depth_m"]) for row in rows] == [190.0, 240.0, 290.0]
+    assert [float(row["sampled_depth_m"]) for row in rows] == [187.5, 237.5, 287.5]
+    assert {float(row["requested_x_m"]) for row in rows} == {700.0}
+    assert {float(row["sampled_x_m"]) for row in rows} == {695.0}
 
 
 def test_observation_semantic_hash_is_independent_of_file_checksum(tmp_path) -> None:

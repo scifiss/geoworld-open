@@ -112,6 +112,7 @@ assumptions:
   - Baseline pressure is an illustrative hydrostatic benchmark, not calibrated formation pressure.
   - Temperature is an illustrative linear geothermal-gradient field; no heat transport is modeled.
   - The pressure change is an analytic Gaussian-like benchmark masked by Reservoir Region R1.
-  - No flow equation, diffusion equation, mass conservation, permeability, or fluid transport is modeled.
+  - No flow equation, diffusion equation, mass conservation, permeability, relative permeability, capillary pressure, or fluid transport is modeled.
+  - No history matching, production prediction, or calibration is performed.
   - Model time labels the synthetic benchmark state and is not a time-integrated flow solution.
   - Well pressure uses nearest-cell sampling and explicit deterministic Gaussian noise.

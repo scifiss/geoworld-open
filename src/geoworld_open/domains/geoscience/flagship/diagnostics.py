@@ -38,7 +38,7 @@ def save_flagship_diagnostic(
         axis.axvline(result.flagship_input.well.x_m, color="white", linewidth=1.0)
         axis.scatter(
             [result.flagship_input.well.x_m] * len(result.observation_rows),
-            [item.sample_depth_m for item in result.observation_rows],
+            [item.sampled_depth_m for item in result.observation_rows],
             s=12,
             color="black",
         )

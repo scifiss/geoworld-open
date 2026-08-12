@@ -74,6 +74,7 @@ OBSERVATION_SUPPORT_ID = "support:flagship-pressure-observation"
 OBSERVATION_ID = "observation:flagship-well-pressure"
 OBSERVATION_REPRESENTATION_ID = "representation:flagship-well-pressure-evidence"
 FRAME_ID = "frame:structural-depth-x"
+REGION_SELECTION_BINDING_ID = "binding:reservoir_selection:flagship-baseline"
 
 
 @dataclass(frozen=True)
@@ -412,7 +413,21 @@ class BaselineTransition:
         provenance_id = "provenance:flagship-baseline"
         representation_ref = _representation_ref(STATE_FIELDS_REPRESENTATION_ID, "v1")
         time = TemporalValue(relative_value=0.0, relative_unit="days")
-        bindings = {
+        state_field_bindings = {
+            "reservoir_selection": FieldBinding(
+                binding_id=REGION_SELECTION_BINDING_ID,
+                field_definition_id="field:reservoir_selection",
+                subject=_ref(
+                    SubjectKind.ENTITY,
+                    _region_entity_id(self.flagship_input),
+                ),
+                world_state_id=BASELINE_STATE_ID,
+                representation=representation_ref,
+                support_id=SUPPORT_ID,
+                scale_label="structural-grid-cell",
+                valid_from=time,
+                provenance_ids=(provenance_id,),
+            ),
             "pressure": _state_binding(
                 "pressure",
                 BASELINE_STATE_ID,
@@ -430,20 +445,24 @@ class BaselineTransition:
                 time,
             ),
         }
+        bindings = tuple(state_field_bindings.values())
         state = WorldState(
             state_id=BASELINE_STATE_ID,
             world_id=world.world_id,
             role=WorldStateRole.SIMULATED,
             valid_from=time,
             parent_state_id=input_state.state_id,
-            field_binding_ids=tuple(item.binding_id for item in bindings.values()),
+            field_binding_ids=tuple(item.binding_id for item in bindings),
             representation_refs=(representation_ref, input_ref),
             provenance_ids=(provenance_id,),
         )
         provenance = Provenance(
             provenance_id=provenance_id,
             activity_type="geoscience:illustrative_baseline_fields",
-            method="hydrostatic pressure and linear geothermal-gradient benchmarks",
+            method=(
+                "explicit ReservoirRegion selection binding plus hydrostatic pressure "
+                "and linear geothermal-gradient benchmarks"
+            ),
             inputs=(
                 _state_ref(input_state.state_id),
                 input_ref,
@@ -453,7 +472,7 @@ class BaselineTransition:
             ),
             outputs=(
                 _state_ref(state.state_id),
-                *(_binding_ref(item.binding_id) for item in bindings.values()),
+                *(_binding_ref(item.binding_id) for item in bindings),
                 representation_ref,
             ),
             parent_provenance_ids=(
@@ -463,6 +482,7 @@ class BaselineTransition:
             parameters=(
                 ("pressure_method", "illustrative_hydrostatic_pressure_v1"),
                 ("temperature_method", "linear_geothermal_gradient_v1"),
+                ("region_binding_method", "explicit_reservoir_region_binding_v1"),
             ),
         )
         bundle = create_xarray_bundle(
@@ -473,7 +493,7 @@ class BaselineTransition:
             reference_frame=world.reference_frames[0],
             representation_id=STATE_FIELDS_REPRESENTATION_ID,
             version="v1",
-            variable_bindings=bindings,
+            variable_bindings=state_field_bindings,
             field_definitions=world.field_definitions,
             provenance=provenance,
             derived_from=(self.structural_bundle.representation.ref, input_ref),
@@ -481,7 +501,7 @@ class BaselineTransition:
         self.bundle = _portable_bundle(bundle, "v1")
         return TransitionResult(
             state=state,
-            field_bindings=tuple(bindings.values()),
+            field_bindings=bindings,
             representations=(self.bundle.representation,),
             provenance=(provenance,),
         )
@@ -493,11 +513,9 @@ class PressurePerturbationTransition:
     def __init__(
         self,
         flagship_input: CompiledFlagshipInput,
-        structural_bundle: XarrayBundle,
         baseline_bundle: XarrayBundle,
     ) -> None:
         self.flagship_input = flagship_input
-        self.structural_bundle = structural_bundle
         self.baseline_bundle = baseline_bundle
         self.bundle: XarrayBundle | None = None
 
@@ -509,7 +527,6 @@ class PressurePerturbationTransition:
             raise ValueError("baseline bundle is not registered in the World")
         dataset = compute_perturbed_pressure_fields(
             self.flagship_input,
-            self.structural_bundle.to_dataset(),
             self.baseline_bundle.to_dataset(),
         )
         provenance_id = "provenance:flagship-pressure-perturbation"
@@ -562,12 +579,10 @@ class PressurePerturbationTransition:
             inputs=(
                 _state_ref(input_state.state_id),
                 input_ref,
-                self.structural_bundle.representation.ref,
                 self.baseline_bundle.representation.ref,
                 _binding_ref("binding:pressure:flagship-baseline"),
-                _binding_ref("binding:reservoir_selection:structural-final"),
+                _binding_ref(REGION_SELECTION_BINDING_ID),
                 region_ref,
-                _ref(SubjectKind.ENTITY, _well_entity_id(self.flagship_input)),
             ),
             outputs=(
                 _state_ref(state.state_id),
@@ -594,7 +609,7 @@ class PressurePerturbationTransition:
             provenance=provenance,
             derived_from=(
                 self.baseline_bundle.representation.ref,
-                self.structural_bundle.representation.ref,
+                input_ref,
             ),
         )
         self.bundle = _portable_bundle(bundle, "v2")
@@ -714,7 +729,6 @@ def run_flagship_world(spec: FlagshipSpec) -> FlagshipWorldResult:
         raise RuntimeError("baseline transition did not produce an immutable bundle")
     perturbation_transition = PressurePerturbationTransition(
         flagship_input,
-        structural_result.stratigraphy_bundle,
         baseline_transition.bundle,
     )
     perturbation_execution = apply_transition(
