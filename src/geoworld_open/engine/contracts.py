@@ -32,7 +32,7 @@ class CapabilityMetadata:
 
 @dataclass(frozen=True)
 class ExecutionContext:
-    spec: object
+    input_data: object
     capability_id: str
     rng: np.random.Generator
     seed_lineage: dict[str, Any]

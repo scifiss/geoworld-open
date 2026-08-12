@@ -11,6 +11,8 @@ The authoritative flow is:
 
 ```text
 GeoSpec authoring input
+  -> one-time immutable CompiledStructuralInput
+  -> canonical JSON + exact structural-input Representation
   -> semantic World bootstrap (persistent Entities and Relations)
   -> immutable initial WorldState
   -> ExecutionPlan of structural capabilities
@@ -20,9 +22,18 @@ GeoSpec authoring input
   -> typed Provenance, diagnostics, and checksummed artifacts
 ```
 
-GeoSpec, the execution plan, and xarray are not alternate World models. GeoSpec
-is an authoring contract, the plan is a dependency-checked execution mechanism
-below World semantics, and xarray is an in-memory numerical Representation.
+GeoSpec, the execution plan, and xarray are not alternate World models. **GeoSpec
+is consumed only at compile/bootstrap time.** Structural execution is driven by
+an immutable, content-bound scientific input associated with the World and
+initial WorldState. The plan is a dependency-checked execution mechanism below
+World semantics, and xarray is an in-memory numerical Representation.
+
+`CompiledStructuralInput` contains only the structural values currently used:
+grid semantics, ordered formations and properties, the bounded facies catalog,
+ordered fold/fault parameters, method configuration, root seed, assumptions,
+and output options. Its finite, sorted, compact JSON serialization is hashed
+without Python repr or fallback conversion. Equivalent input has the same hash;
+any changed scientific parameter has a different hash.
 
 ## Phase 2 inventory
 
@@ -48,8 +59,8 @@ below World semantics, and xarray is an in-memory numerical Representation.
   identity is independent of layer-index, facies, porosity, and grid arrays.
 - Each explicit fault is a persistent `geoscience:fault` Entity. A fold is a
   bounded `geoscience:fold` Entity because it is an explicit named structure.
-- `facies` is a categorical Field. Its category codes and meanings mirror the
-  explicit public GeoSpec definitions.
+- `facies` is a categorical Field. Its category codes and meanings originate in
+  the exact content-bound facies catalog; xarray attributes only mirror them.
 - `porosity` is a continuous dimensionless Field represented by a
   FieldDefinition and output-state FieldBinding; it is not Entity metadata.
 - A Formation relation qualifier records its explicit reservoir role.
@@ -82,19 +93,30 @@ FieldDefinition and mirrored as descriptive xarray metadata.
 
 The compiler creates Formation, Fault, and Fold identity, structural relations,
 FieldDefinitions, one local depth/x ReferenceFrame, one regular-grid Support,
-and `state:structural-initial`. `StructuralTransition` executes the validated
+and `state:structural-initial`. The initial state references
+`representation:structural-input@v1`, whose content hash covers the exact
+canonical structural input. Before any capability executes,
+`StructuralTransition` recalculates the compiled-input hash and rejects it if it
+does not match that World-bound Representation. It then executes the validated
 plan and calls the Gate 2 atomic `apply_transition()` boundary.
 
 The output has two immutable xarray Representations: structural geometry and
 stratigraphic fields. Every numerical variable has one FieldBinding in
-`state:structural-final`. Geometry provenance cites the input state and explicit
+`state:structural-final`. Typed Provenance references the exact input
+Representation. Geometry provenance also cites the input state and explicit
 Fault/Fold Entities. Stratigraphic provenance cites the input state, geometry
 Representation, and Formation Entities. Transition provenance cites the input
-state, both Representations, and the final state. The original World and initial
-state remain unchanged on success or failure.
+state, exact input, relevant Formation/Fault/Fold Entities, and emits both
+numerical Representations, every FieldBinding, and the final state. The
+original World and initial state remain unchanged on success or failure.
 
-External artifact immutability remains a storage-layer boundary. The manifest
-records independent SHA-256 checksums so exported content can be verified.
+Numerical artifact export is sourced from immutable Representation-backed
+bundles rather than mutable Dataset copies. Each portable `artifact://` package
+contains a descriptor and `.npy` payloads from which the canonical xarray
+content is reconstructed and checked against the Representation hash. The run
+manifest separately records file SHA-256 checksums. The input artifact is the
+exact canonical JSON whose checksum equals the input Representation hash.
+External storage immutability remains a storage-layer boundary.
 
 ## Numerical regression against frozen Phase 2
 
@@ -148,7 +170,9 @@ elastic inputs into the new World.
   provenance classes. Execution timing may exist in future telemetry but is not
   semantic provenance.
 - **REMODEL:** `fault_mask` and `reservoir_mask` become explicit selection Fields;
-  Dataset-first execution becomes an atomic semantic World transition.
+  Dataset-first execution becomes an atomic semantic World transition; GeoSpec
+  becomes a one-time compiled input whose canonical Representation is bound to
+  the initial WorldState.
 
 No private GeoWorld implementation, ontology, prompt, planner, knowledge asset,
 evaluation, or calibrated scientific recipe was copied into this integration.

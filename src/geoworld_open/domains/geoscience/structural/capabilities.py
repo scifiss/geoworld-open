@@ -9,13 +9,13 @@ from geoworld_open.domains.geoscience.structural.numerics import (
     assign_stratigraphic_fields,
     compute_structural_geometry,
 )
+from geoworld_open.domains.geoscience.structural.input import CompiledStructuralInput
 from geoworld_open.engine import (
     CapabilityMetadata,
     CapabilityResult,
     ExecutionContext,
     VariableContract,
 )
-from geoworld_open.specs import GeoSpec
 
 
 class StructuralGeometryCapability:
@@ -41,9 +41,12 @@ class StructuralGeometryCapability:
     )
 
     def execute(self, dataset: xr.Dataset, context: ExecutionContext) -> CapabilityResult:
-        if not isinstance(context.spec, GeoSpec):
-            raise TypeError("StructuralGeometryCapability requires GeoSpec")
-        fragment, diagnostics = compute_structural_geometry(context.spec, dataset)
+        if not isinstance(context.input_data, CompiledStructuralInput):
+            raise TypeError("StructuralGeometryCapability requires compiled structural input")
+        fragment, diagnostics = compute_structural_geometry(
+            context.input_data,
+            dataset,
+        )
         return CapabilityResult(fragment, diagnostics)
 
 
@@ -61,16 +64,19 @@ class StratigraphicAssignmentCapability:
             VariableContract("reservoir_selection", DEPTH_X, "1", "b"),
         ),
         assumptions=(
-            "Formation properties are explicit GeoSpec values and piecewise constant.",
+            "Formation properties are explicit compiled-input values and piecewise constant.",
             "Assignment follows mapped source depth after every listed structure.",
         ),
         references=("Interval lookup on explicit stratigraphic boundaries.",),
     )
 
     def execute(self, dataset: xr.Dataset, context: ExecutionContext) -> CapabilityResult:
-        if not isinstance(context.spec, GeoSpec):
-            raise TypeError("StratigraphicAssignmentCapability requires GeoSpec")
-        fragment, diagnostics = assign_stratigraphic_fields(context.spec, dataset)
+        if not isinstance(context.input_data, CompiledStructuralInput):
+            raise TypeError("StratigraphicAssignmentCapability requires compiled structural input")
+        fragment, diagnostics = assign_stratigraphic_fields(
+            context.input_data,
+            dataset,
+        )
         return CapabilityResult(fragment, diagnostics)
 
 

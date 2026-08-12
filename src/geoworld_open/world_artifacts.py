@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import xarray as xr
 import yaml
 
 from geoworld_open import __version__
@@ -31,7 +32,7 @@ def _write_json(path: Path, payload: Any) -> None:
 
 
 def _normalized_spec_bytes(result: StructuralWorldResult) -> bytes:
-    payload = result.spec.model_dump(mode="json", exclude_none=True)
+    payload = result.structural_input.model_dump(mode="json", exclude_none=True)
     return yaml.safe_dump(payload, sort_keys=False).encode("utf-8")
 
 
@@ -59,6 +60,86 @@ def _dataset_metadata(result: StructuralWorldResult) -> dict[str, Any]:
         },
         "content_sha256": dataset_content_sha256(dataset),
     }
+
+
+def _canonical_bundles(result: StructuralWorldResult):
+    return (result.geometry_bundle, result.stratigraphy_bundle)
+
+
+def _artifact_relative_path(uri: str) -> Path:
+    prefix = "artifact://"
+    if not uri.startswith(prefix):
+        raise ValueError(f"Representation does not have a portable artifact URI: {uri!r}")
+    path = Path(uri[len(prefix) :])
+    if path.is_absolute() or ".." in path.parts:
+        raise ValueError(f"unsafe artifact URI: {uri!r}")
+    return path
+
+
+def _write_representation_bundle(output: Path, bundle) -> None:
+    dataset = bundle.to_dataset()
+    representation = bundle.representation
+    actual_hash = dataset_content_sha256(dataset)
+    if actual_hash != representation.content_sha256:
+        raise ValueError(
+            f"canonical content for {representation.representation_id!r} "
+            "does not match its Representation hash"
+        )
+
+    descriptor_path = output / _artifact_relative_path(representation.artifact_uri)
+    descriptor_path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor: dict[str, Any] = {
+        "schema_version": "1.0",
+        "representation_id": representation.representation_id,
+        "version": representation.version,
+        "content_sha256": representation.content_sha256,
+        "dataset_attributes": dict(dataset.attrs),
+        "coordinates": {},
+        "variables": {},
+    }
+    for category, values in (
+        ("coordinates", dataset.coords),
+        ("variables", dataset.data_vars),
+    ):
+        for name, value in sorted(values.items()):
+            filename = f"{category}/{name}.npy"
+            path = descriptor_path.parent / filename
+            path.parent.mkdir(parents=True, exist_ok=True)
+            np.save(path, value.values, allow_pickle=False)
+            descriptor[category][name] = {
+                "path": filename,
+                "dimensions": list(value.dims),
+                "attributes": dict(value.attrs),
+            }
+    _write_json(descriptor_path, descriptor)
+
+
+def _load_representation_dataset(output: Path, descriptor_path: Path) -> tuple[dict[str, Any], xr.Dataset]:
+    descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
+    coordinates: dict[str, Any] = {}
+    variables: dict[str, Any] = {}
+    for category, destination in (
+        ("coordinates", coordinates),
+        ("variables", variables),
+    ):
+        for name, item in descriptor[category].items():
+            path = descriptor_path.parent / item["path"]
+            try:
+                path.relative_to(output)
+            except ValueError as error:
+                raise ValueError("Representation descriptor escapes the run directory") from error
+            values = np.load(path, allow_pickle=False)
+            destination[name] = (
+                tuple(item["dimensions"]),
+                values,
+                item["attributes"],
+            )
+    dataset = xr.Dataset(
+        data_vars=variables,
+        coords=coordinates,
+        attrs=descriptor["dataset_attributes"],
+    )
+    return descriptor, dataset
 
 
 def _world_summary(result: StructuralWorldResult) -> dict[str, Any]:
@@ -106,22 +187,33 @@ def write_world_artifacts(
     coordinates_dir.mkdir(exist_ok=True)
 
     normalized_spec = _normalized_spec_bytes(result)
-    (output / "geospec.yaml").write_bytes(normalized_spec)
+    normalized_input = result.normalized_input_bytes
+    inputs_dir = output / "inputs"
+    inputs_dir.mkdir(exist_ok=True)
+    (inputs_dir / "structural-input.json").write_bytes(normalized_input)
+    (inputs_dir / "structural-input.yaml").write_bytes(normalized_spec)
     dataset = result.dataset
-    for name, value in sorted(dataset.coords.items()):
-        np.save(coordinates_dir / f"{name}.npy", value.values, allow_pickle=False)
-    for name, value in sorted(dataset.data_vars.items()):
-        np.save(arrays_dir / f"{name}.npy", value.values, allow_pickle=False)
+    for bundle in _canonical_bundles(result):
+        _write_representation_bundle(output, bundle)
+    if result.structural_input.outputs.save_arrays:
+        for name, value in sorted(dataset.coords.items()):
+            np.save(coordinates_dir / f"{name}.npy", value.values, allow_pickle=False)
+        for name, value in sorted(dataset.data_vars.items()):
+            np.save(arrays_dir / f"{name}.npy", value.values, allow_pickle=False)
+    else:
+        arrays_dir.rmdir()
+        coordinates_dir.rmdir()
 
     _write_json(output / "world.json", result.world.model_dump(mode="json"))
     _write_json(output / "world_summary.json", _world_summary(result))
-    _write_json(output / "dataset_metadata.json", _dataset_metadata(result))
+    if result.structural_input.outputs.save_dataset_metadata:
+        _write_json(output / "dataset_metadata.json", _dataset_metadata(result))
     _write_json(
         output / "execution_plan.json",
         {
             "capability_order": list(result.plan.capability_ids),
             "capabilities": list(result.numerical.trace),
-            "root_seed": result.spec.seed,
+            "root_seed": result.structural_input.root_seed,
             "seed_lineage": result.numerical.seed_lineage,
         },
     )
@@ -132,13 +224,13 @@ def write_world_artifacts(
         [item.model_dump(mode="json") for item in result.world.provenance],
     )
 
-    if result.spec.outputs.save_diagnostic_figure:
+    if result.structural_input.outputs.save_diagnostic_figure:
         save_structural_world_diagnostic(result, output / "structure_diagnostic.png")
 
     report = [
-        f"# {result.spec.metadata.name}",
+        f"# {result.structural_input.name}",
         "",
-        result.spec.metadata.description,
+        result.structural_input.description,
         "",
         "## Semantic result",
         "",
@@ -150,7 +242,7 @@ def write_world_artifacts(
         "",
         "## Assumptions",
         "",
-        *[f"- {item}" for item in result.spec.assumptions],
+        *[f"- {item}" for item in result.structural_input.assumptions],
         "",
         "## Scope",
         "",
@@ -176,11 +268,16 @@ def write_world_artifacts(
         },
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "workflow": "structural-world",
-        "input_spec_sha256": hashlib.sha256(normalized_spec).hexdigest(),
+        "structural_input_sha256": hashlib.sha256(normalized_input).hexdigest(),
+        "structural_input_representation": {
+            "representation_id": "representation:structural-input",
+            "version": "v1",
+            "artifact_uri": "artifact://inputs/structural-input.json",
+        },
         "world_id": result.world.world_id,
         "initial_state_id": result.initial_state_id,
         "final_state_id": result.final_state_id,
-        "root_seed": result.spec.seed,
+        "root_seed": result.structural_input.root_seed,
         "seed_lineage": result.numerical.seed_lineage,
         "capabilities": list(result.numerical.trace),
         "representation_hashes": representations,
@@ -205,7 +302,7 @@ def write_world_artifacts(
 
 
 def verify_world_artifact_checksums(output_dir: str | Path) -> None:
-    """Raise when any artifact recorded in a semantic run manifest changed."""
+    """Verify independent file checksums and semantic Representation content."""
     output = Path(output_dir)
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
     for item in manifest["artifacts"]:
@@ -214,3 +311,28 @@ def verify_world_artifact_checksums(output_dir: str | Path) -> None:
             raise ValueError(f"manifest artifact is missing: {item['path']}")
         if file_sha256(path) != item["sha256"]:
             raise ValueError(f"manifest checksum mismatch: {item['path']}")
+
+    world = json.loads((output / "world.json").read_text(encoding="utf-8"))
+    representations = {
+        (item["representation_id"], item["version"]): item
+        for item in world["representations"]
+    }
+    input_representation = representations[("representation:structural-input", "v1")]
+    input_path = output / _artifact_relative_path(input_representation["artifact_uri"])
+    if hashlib.sha256(input_path.read_bytes()).hexdigest() != input_representation["content_sha256"]:
+        raise ValueError("structural input artifact does not match its Representation hash")
+
+    for key, representation in representations.items():
+        if key == ("representation:structural-input", "v1"):
+            continue
+        descriptor_path = output / _artifact_relative_path(representation["artifact_uri"])
+        descriptor, dataset = _load_representation_dataset(output, descriptor_path)
+        actual_hash = dataset_content_sha256(dataset)
+        if descriptor["content_sha256"] != representation["content_sha256"]:
+            raise ValueError(
+                f"Representation descriptor hash mismatch: {representation['representation_id']}"
+            )
+        if actual_hash != representation["content_sha256"]:
+            raise ValueError(
+                f"Representation content hash mismatch: {representation['representation_id']}"
+            )

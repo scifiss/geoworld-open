@@ -22,7 +22,7 @@ def save_structural_world_diagnostic(
     dataset = result.dataset
     x = np.asarray(dataset.coords["x"])
     depth = np.asarray(dataset.coords["depth"])
-    grid = result.spec.grid
+    grid = result.structural_input.grid
     extent = [
         x[0] - grid.dx_m / 2,
         x[-1] + grid.dx_m / 2,
@@ -95,6 +95,6 @@ def save_structural_world_diagnostic(
         axis.set_xlabel("x (m)")
         axis.set_ylabel("depth (m)")
         axis.tick_params(labelsize=7)
-    figure.suptitle(f"Structural World diagnostic: {result.spec.metadata.name}")
+    figure.suptitle(f"Structural World diagnostic: {result.structural_input.name}")
     figure.savefig(path, dpi=160, bbox_inches="tight")
     plt.close(figure)

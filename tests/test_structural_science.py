@@ -6,11 +6,15 @@ from geoworld_open.domains.geoscience.structural.numerics import (
     compute_structural_geometry,
     create_structural_grid,
 )
+from geoworld_open.domains.geoscience.structural import (
+    CompiledStructuralInput,
+    compile_structural_input,
+)
 from geoworld_open.specs import GeoSpec
 
 
-def _spec(structures=None) -> GeoSpec:
-    return GeoSpec.model_validate(
+def _spec(structures=None) -> CompiledStructuralInput:
+    return compile_structural_input(GeoSpec.model_validate(
         {
             "schema_version": "2.0",
             "metadata": {"name": "structural_test", "description": "test model"},
@@ -46,7 +50,7 @@ def _spec(structures=None) -> GeoSpec:
             "outputs": {},
             "assumptions": ["Synthetic structural test."],
         }
-    )
+    ))
 
 
 def _fault(**overrides):

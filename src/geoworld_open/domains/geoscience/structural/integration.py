@@ -11,9 +11,17 @@ import xarray as xr
 from geoworld_open.domains.geoscience.structural.capabilities import (
     structural_capabilities,
 )
+from geoworld_open.domains.geoscience.structural.input import (
+    CompiledFault,
+    CompiledFold,
+    CompiledStructuralInput,
+    canonical_structural_input_bytes,
+    compile_structural_input,
+    structural_input_sha256,
+)
 from geoworld_open.domains.geoscience.structural.numerics import create_structural_grid
 from geoworld_open.engine import ExecutionContext, ExecutionPlan, SeedManager, compile_plan
-from geoworld_open.specs import FaultSpec, FoldSpec, GeoSpec
+from geoworld_open.specs import GeoSpec
 from geoworld_open.world import (
     Directionality,
     Entity,
@@ -26,6 +34,8 @@ from geoworld_open.world import (
     Provenance,
     ReferenceFrame,
     Relation,
+    Representation,
+    RepresentationKind,
     SubjectKind,
     SubjectRef,
     Support,
@@ -47,6 +57,9 @@ FINAL_STATE_ID = "state:structural-final"
 FRAME_ID = "frame:structural-depth-x"
 SUPPORT_ID = "support:structural-grid"
 ROOT_ENTITY_ID = "model:structural-earth"
+INPUT_REPRESENTATION_ID = "representation:structural-input"
+INPUT_REPRESENTATION_VERSION = "v1"
+INPUT_ARTIFACT_URI = "artifact://inputs/structural-input.json"
 
 GEOMETRY_VARIABLES = (
     "source_depth_m",
@@ -66,8 +79,6 @@ STRATIGRAPHIC_VARIABLES = (
 
 @dataclass(frozen=True)
 class NumericalExecution:
-    dataset: xr.Dataset
-    fragments: dict[str, xr.Dataset]
     diagnostics: dict[str, dict[str, Any]]
     trace: tuple[dict[str, Any], ...]
     seed_lineage: dict[str, dict[str, Any]]
@@ -77,7 +88,7 @@ class NumericalExecution:
 class StructuralWorldResult:
     """Validated semantic and numerical result of one structural World run."""
 
-    spec: GeoSpec
+    structural_input: CompiledStructuralInput
     initial_world: World
     world: World
     plan: ExecutionPlan
@@ -95,7 +106,15 @@ class StructuralWorldResult:
 
     @property
     def dataset(self) -> xr.Dataset:
-        return self.numerical.dataset.copy(deep=True)
+        geometry = self.geometry_bundle.to_dataset()
+        stratigraphy = self.stratigraphy_bundle.to_dataset()
+        geometry.attrs = {}
+        stratigraphy.attrs = {}
+        return xr.merge((geometry, stratigraphy), compat="equals", join="exact")
+
+    @property
+    def normalized_input_bytes(self) -> bytes:
+        return canonical_structural_input_bytes(self.structural_input)
 
 
 def _entity_ref(entity_id: str) -> SubjectRef:
@@ -175,20 +194,34 @@ def _structural_field_definitions() -> tuple[FieldDefinition, ...]:
     )
 
 
-def bootstrap_structural_world(spec: GeoSpec) -> World:
+def _input_representation(structural_input: CompiledStructuralInput) -> Representation:
+    return Representation(
+        representation_id=INPUT_REPRESENTATION_ID,
+        version=INPUT_REPRESENTATION_VERSION,
+        subjects=(_state_ref(INITIAL_STATE_ID),),
+        kind=RepresentationKind.TABLE,
+        artifact_uri=INPUT_ARTIFACT_URI,
+        content_sha256=structural_input_sha256(structural_input),
+        media_type="application/json",
+        provenance_ids=("provenance:structural-input",),
+    )
+
+
+def bootstrap_structural_world(structural_input: CompiledStructuralInput) -> World:
     """Compile authoring input into semantic identities and one empty initial state."""
     bootstrap_id = "provenance:structural-bootstrap"
     entities: list[Entity] = [
         Entity(
             entity_id=ROOT_ENTITY_ID,
             entity_type="geoscience:structural_model",
-            label=spec.metadata.name,
+            label=structural_input.name,
             provenance_ids=(bootstrap_id,),
         )
     ]
     relations: list[Relation] = []
 
-    for index, formation in enumerate(spec.layers):
+    for formation in structural_input.formations:
+        index = formation.order
         entity_id = f"formation:{formation.id}"
         entities.append(
             Entity(
@@ -215,20 +248,25 @@ def bootstrap_structural_world(spec: GeoSpec) -> World:
         if index:
             relations.append(
                 Relation(
-                    relation_id=f"relation:{spec.layers[index - 1].id}:overlies:{formation.id}",
-                    source_entity_id=f"formation:{spec.layers[index - 1].id}",
+                    relation_id=(
+                        f"relation:{structural_input.formations[index - 1].id}"
+                        f":overlies:{formation.id}"
+                    ),
+                    source_entity_id=(
+                        f"formation:{structural_input.formations[index - 1].id}"
+                    ),
                     relation_type="geoscience:overlies",
                     target_entity_id=entity_id,
                     provenance_ids=(bootstrap_id,),
                 )
             )
 
-    for structure in spec.structures:
-        if isinstance(structure, FaultSpec):
+    for structure in structural_input.structures:
+        if isinstance(structure, CompiledFault):
             entity_type = "geoscience:fault"
             entity_id = f"fault:{structure.id}"
         else:
-            assert isinstance(structure, FoldSpec)
+            assert isinstance(structure, CompiledFold)
             entity_type = "geoscience:fold"
             entity_id = f"fold:{structure.id}"
         entities.append(
@@ -246,7 +284,7 @@ def bootstrap_structural_world(spec: GeoSpec) -> World:
                 relation_type="geoscience:deforms",
                 target_entity_id=ROOT_ENTITY_ID,
                 directionality=Directionality.DIRECTED,
-                qualifiers=(("operation_order", spec.structures.index(structure)),),
+                qualifiers=(("operation_order", structure.order),),
                 provenance_ids=(bootstrap_id,),
             )
         )
@@ -264,15 +302,17 @@ def bootstrap_structural_world(spec: GeoSpec) -> World:
         support_id=SUPPORT_ID,
         support_kind=SupportKind.REGULAR_GRID,
         dimension_names=("depth", "x"),
-        shape=(spec.grid.ndepth, spec.grid.nx),
+        shape=(structural_input.grid.ndepth, structural_input.grid.nx),
         reference_frame_id=FRAME_ID,
         provenance_ids=(bootstrap_id,),
     )
     definitions = _structural_field_definitions()
+    input_representation = _input_representation(structural_input)
     initial_state = WorldState(
         state_id=INITIAL_STATE_ID,
-        world_id=f"world:{spec.metadata.name}",
+        world_id=f"world:{structural_input.name}",
         role=WorldStateRole.HYPOTHETICAL,
+        representation_refs=(input_representation.ref,),
         provenance_ids=(bootstrap_id,),
     )
 
@@ -289,29 +329,41 @@ def bootstrap_structural_world(spec: GeoSpec) -> World:
         SubjectRef(kind=SubjectKind.SUPPORT, subject_id=SUPPORT_ID),
         _state_ref(INITIAL_STATE_ID),
     )
-    provenance = Provenance(
+    input_provenance = Provenance(
+        provenance_id="provenance:structural-input",
+        activity_type="geoscience:input_compilation",
+        method="canonical_structural_input_json_v1",
+        outputs=(input_representation.ref,),
+        parameters=(
+            ("compiled_schema_version", structural_input.compiled_schema_version),
+            ("content_sha256", input_representation.content_sha256),
+        ),
+    )
+    bootstrap_provenance = Provenance(
         provenance_id=bootstrap_id,
         activity_type="geoscience:world_bootstrap",
         method="GeoSpec structural semantic compiler",
+        inputs=(input_representation.ref,),
         outputs=bootstrap_outputs,
         parameters=(
-            ("schema_version", spec.schema_version),
-            ("root_seed", spec.seed),
-            ("structural_method", spec.structural_method.method_id),
+            ("schema_version", structural_input.schema_version),
+            ("root_seed", structural_input.root_seed),
+            ("structural_method", structural_input.structural_method_id),
         ),
     )
     return World(
         world_id=initial_state.world_id,
-        label=spec.metadata.name,
+        label=structural_input.name,
         origin=WorldOrigin.SYNTHETIC,
         entities=tuple(entities),
         relations=tuple(relations),
         field_definitions=definitions,
+        representations=(input_representation,),
         states=(initial_state,),
-        provenance=(provenance,),
+        provenance=(input_provenance, bootstrap_provenance),
         reference_frames=(frame,),
         supports=(support,),
-        metadata=(("geospec_schema_version", spec.schema_version),),
+        metadata=(("geospec_schema_version", structural_input.schema_version),),
     )
 
 
@@ -334,9 +386,18 @@ def _validate_fragment(capability_id: str, fragment: xr.Dataset, plan: Execution
             raise ValueError(f"capability {capability_id!r} returned wrong dtype kind for {name!r}")
 
 
-def _execute_plan(spec: GeoSpec, plan: ExecutionPlan) -> NumericalExecution:
-    dataset = create_structural_grid(spec)
-    seed_manager = SeedManager(spec.seed)
+@dataclass(frozen=True)
+class _PlanExecution:
+    fragments: dict[str, xr.Dataset]
+    metadata: NumericalExecution
+
+
+def _execute_plan(
+    structural_input: CompiledStructuralInput,
+    plan: ExecutionPlan,
+) -> _PlanExecution:
+    dataset = create_structural_grid(structural_input)
+    seed_manager = SeedManager(structural_input.root_seed)
     fragments: dict[str, xr.Dataset] = {}
     diagnostics: dict[str, dict[str, Any]] = {}
     lineage: dict[str, dict[str, Any]] = {}
@@ -346,7 +407,7 @@ def _execute_plan(spec: GeoSpec, plan: ExecutionPlan) -> NumericalExecution:
         capability_id = capability.metadata.capability_id
         capability_lineage = seed_manager.lineage(capability_id)
         context = ExecutionContext(
-            spec=spec,
+            input_data=structural_input,
             capability_id=capability_id,
             rng=seed_manager.generator(capability_id),
             seed_lineage=capability_lineage,
@@ -373,12 +434,13 @@ def _execute_plan(spec: GeoSpec, plan: ExecutionPlan) -> NumericalExecution:
             }
         )
 
-    return NumericalExecution(
-        dataset=dataset,
+    return _PlanExecution(
         fragments=fragments,
-        diagnostics=diagnostics,
-        trace=tuple(trace),
-        seed_lineage=lineage,
+        metadata=NumericalExecution(
+            diagnostics=diagnostics,
+            trace=tuple(trace),
+            seed_lineage=lineage,
+        ),
     )
 
 
@@ -413,8 +475,12 @@ class StructuralTransition:
 
     transition_id = "transition:structural-geology-v1"
 
-    def __init__(self, spec: GeoSpec, plan: ExecutionPlan) -> None:
-        self.spec = spec
+    def __init__(
+        self,
+        structural_input: CompiledStructuralInput,
+        plan: ExecutionPlan,
+    ) -> None:
+        self.structural_input = structural_input
         self.plan = plan
         self.numerical: NumericalExecution | None = None
         self.geometry_bundle: XarrayBundle | None = None
@@ -424,7 +490,32 @@ class StructuralTransition:
         if input_state.state_id != INITIAL_STATE_ID:
             raise ValueError("StructuralTransition requires the compiled initial state")
 
-        numerical = _execute_plan(self.spec, self.plan)
+        input_ref = SubjectRef(
+            kind=SubjectKind.REPRESENTATION,
+            subject_id=INPUT_REPRESENTATION_ID,
+            representation_version=INPUT_REPRESENTATION_VERSION,
+        )
+        if input_ref not in input_state.representation_refs:
+            raise ValueError("initial WorldState does not bind the structural input Representation")
+        registered_input = next(
+            (
+                item
+                for item in world.representations
+                if item.ref == input_ref
+            ),
+            None,
+        )
+        if registered_input is None:
+            raise ValueError("World does not contain the structural input Representation")
+        expected_hash = structural_input_sha256(self.structural_input)
+        if registered_input.content_sha256 != expected_hash:
+            raise ValueError(
+                "compiled structural input does not match the World-bound input Representation"
+            )
+        if registered_input.artifact_uri != INPUT_ARTIFACT_URI:
+            raise ValueError("structural input Representation has an unexpected artifact URI")
+
+        plan_execution = _execute_plan(self.structural_input, self.plan)
         geometry_representation_id = "representation:structural-geometry"
         stratigraphy_representation_id = "representation:stratigraphic-fields"
         geometry_provenance_id = "provenance:structural-geometry"
@@ -458,18 +549,21 @@ class StructuralTransition:
 
         structure_refs = tuple(
             _entity_ref(
-                f"fault:{item.id}" if isinstance(item, FaultSpec) else f"fold:{item.id}"
+                f"fault:{item.id}"
+                if isinstance(item, CompiledFault)
+                else f"fold:{item.id}"
             )
-            for item in self.spec.structures
+            for item in self.structural_input.structures
         )
         formation_refs = tuple(
-            _entity_ref(f"formation:{item.id}") for item in self.spec.layers
+            _entity_ref(f"formation:{item.id}")
+            for item in self.structural_input.formations
         )
         geometry_provenance = Provenance(
             provenance_id=geometry_provenance_id,
             activity_type="geoscience:structural_geometry",
             method="analytic_source_depth_v1",
-            inputs=(_state_ref(input_state.state_id), *structure_refs),
+            inputs=(_state_ref(input_state.state_id), input_ref, *structure_refs),
             outputs=(
                 *(_binding_ref(item.binding_id) for item in geometry_bindings.values()),
                 geometry_ref,
@@ -477,15 +571,20 @@ class StructuralTransition:
             parameters=(
                 ("capability_id", "structural_geometry"),
                 ("capability_version", "3.0.0"),
-                ("root_seed", self.spec.seed),
-                ("operation_order", self.spec.structural_method.operation_order),
+                ("root_seed", self.structural_input.root_seed),
+                ("operation_order", self.structural_input.operation_order),
             ),
         )
         stratigraphy_provenance = Provenance(
             provenance_id=stratigraphy_provenance_id,
             activity_type="geoscience:stratigraphic_assignment",
             method="explicit_layer_lookup_v1",
-            inputs=(_state_ref(input_state.state_id), geometry_ref, *formation_refs),
+            inputs=(
+                _state_ref(input_state.state_id),
+                input_ref,
+                geometry_ref,
+                *formation_refs,
+            ),
             outputs=(
                 *(_binding_ref(item.binding_id) for item in stratigraphy_bindings.values()),
                 stratigraphy_ref,
@@ -494,23 +593,34 @@ class StructuralTransition:
             parameters=(
                 ("capability_id", "stratigraphic_assignment"),
                 ("capability_version", "3.0.0"),
-                ("root_seed", self.spec.seed),
+                ("root_seed", self.structural_input.root_seed),
             ),
         )
         transition_provenance = Provenance(
             provenance_id=transition_provenance_id,
             activity_type="world:state_transition",
             method=self.transition_id,
-            inputs=(_state_ref(input_state.state_id), geometry_ref, stratigraphy_ref),
-            outputs=(_state_ref(final_state.state_id),),
+            inputs=(
+                _state_ref(input_state.state_id),
+                input_ref,
+                *structure_refs,
+                *formation_refs,
+            ),
+            outputs=(
+                _state_ref(final_state.state_id),
+                *(_binding_ref(item.binding_id) for item in geometry_bindings.values()),
+                *(_binding_ref(item.binding_id) for item in stratigraphy_bindings.values()),
+                geometry_ref,
+                stratigraphy_ref,
+            ),
             parent_provenance_ids=(geometry_provenance_id, stratigraphy_provenance_id),
-            parameters=(("root_seed", self.spec.seed),),
+            parameters=(("root_seed", self.structural_input.root_seed),),
         )
 
         support = world.supports[0]
         frame = world.reference_frames[0]
         geometry_bundle = create_xarray_bundle(
-            numerical.fragments["structural_geometry"],
+            plan_execution.fragments["structural_geometry"],
             world_id=world.world_id,
             state=final_state,
             support=support,
@@ -522,7 +632,7 @@ class StructuralTransition:
             provenance=geometry_provenance,
         )
         stratigraphy_bundle = create_xarray_bundle(
-            numerical.fragments["stratigraphic_assignment"],
+            plan_execution.fragments["stratigraphic_assignment"],
             world_id=world.world_id,
             state=final_state,
             support=support,
@@ -535,7 +645,28 @@ class StructuralTransition:
             derived_from=(geometry_bundle.representation.ref,),
         )
 
-        self.numerical = numerical
+        geometry_representation = geometry_bundle.representation.model_copy(
+            update={
+                "artifact_uri": "artifact://representations/structural-geometry/metadata.json"
+            }
+        )
+        geometry_bundle = XarrayBundle(
+            geometry_bundle.to_dataset(),
+            geometry_representation,
+            geometry_bundle.variable_bindings,
+        )
+        stratigraphy_representation = stratigraphy_bundle.representation.model_copy(
+            update={
+                "artifact_uri": "artifact://representations/stratigraphic-fields/metadata.json"
+            }
+        )
+        stratigraphy_bundle = XarrayBundle(
+            stratigraphy_bundle.to_dataset(),
+            stratigraphy_representation,
+            stratigraphy_bundle.variable_bindings,
+        )
+
+        self.numerical = plan_execution.metadata
         self.geometry_bundle = geometry_bundle
         self.stratigraphy_bundle = stratigraphy_bundle
         return TransitionResult(
@@ -555,9 +686,10 @@ class StructuralTransition:
 
 def run_structural_world(spec: GeoSpec) -> StructuralWorldResult:
     """Run structural science through the semantic World transition boundary."""
-    initial_world = bootstrap_structural_world(spec)
+    structural_input = compile_structural_input(spec)
+    initial_world = bootstrap_structural_world(structural_input)
     plan = compile_plan(structural_capabilities())
-    transition = StructuralTransition(spec, plan)
+    transition = StructuralTransition(structural_input, plan)
     execution = apply_transition(initial_world, INITIAL_STATE_ID, transition)
     if (
         transition.numerical is None
@@ -566,7 +698,7 @@ def run_structural_world(spec: GeoSpec) -> StructuralWorldResult:
     ):
         raise RuntimeError("structural transition completed without numerical bundles")
     return StructuralWorldResult(
-        spec=spec,
+        structural_input=structural_input,
         initial_world=initial_world,
         world=execution.world,
         plan=plan,

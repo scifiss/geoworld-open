@@ -60,7 +60,7 @@ def world_run(
     result = run_structural_world(spec)
     path = write_world_artifacts(result, output, overwrite=overwrite)
     typer.echo(
-        f"Completed {spec.metadata.name}: {result.initial_state_id} -> "
+        f"Completed {result.structural_input.name}: {result.initial_state_id} -> "
         f"{result.final_state_id}; {path.resolve()}"
     )
 

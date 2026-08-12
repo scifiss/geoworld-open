@@ -7,15 +7,19 @@ from typing import Any
 import numpy as np
 import xarray as xr
 
-from geoworld_open.specs import FaultSpec, FoldSpec, GeoSpec
+from geoworld_open.domains.geoscience.structural.input import (
+    CompiledFault,
+    CompiledFold,
+    CompiledStructuralInput,
+)
 
 
 DEPTH_X = ("depth", "x")
 
 
-def create_structural_grid(spec: GeoSpec) -> xr.Dataset:
+def create_structural_grid(structural_input: CompiledStructuralInput) -> xr.Dataset:
     """Create an empty cell-centered grid with authoritative mirrored coordinates."""
-    grid = spec.grid
+    grid = structural_input.grid
     x = grid.x_origin_m + (np.arange(grid.nx, dtype=float) + 0.5) * grid.dx_m
     depth = grid.depth_origin_m + (
         np.arange(grid.ndepth, dtype=float) + 0.5
@@ -53,7 +57,10 @@ def _attrs(
     }
 
 
-def compute_structural_geometry(spec: GeoSpec, grid: xr.Dataset) -> tuple[xr.Dataset, dict[str, Any]]:
+def compute_structural_geometry(
+    structural_input: CompiledStructuralInput,
+    grid: xr.Dataset,
+) -> tuple[xr.Dataset, dict[str, Any]]:
     """Apply listed fold/fault source-depth transforms exactly once."""
     x = np.asarray(grid.coords["x"].values)
     depth = np.asarray(grid.coords["depth"].values)
@@ -65,8 +72,8 @@ def compute_structural_geometry(spec: GeoSpec, grid: xr.Dataset) -> tuple[xr.Dat
     fault_selections: list[np.ndarray] = []
     fault_diagnostics: list[dict[str, Any]] = []
 
-    for structure in spec.structures:
-        if isinstance(structure, FoldSpec):
+    for structure in structural_input.structures:
+        if isinstance(structure, CompiledFold):
             phase_rad = np.deg2rad(structure.phase_deg)
             displacement = structure.amplitude_m * np.sin(
                 2.0 * np.pi * (xx - structure.x_origin_m) / structure.wavelength_m
@@ -76,7 +83,7 @@ def compute_structural_geometry(spec: GeoSpec, grid: xr.Dataset) -> tuple[xr.Dat
             fold_displacement += displacement
             continue
 
-        assert isinstance(structure, FaultSpec)
+        assert isinstance(structure, CompiledFault)
         direction = 1.0 if structure.dip_direction == "positive_x" else -1.0
         trace_x = structure.x_position_m + direction * (
             source_depth - structure.reference_depth_m
@@ -106,18 +113,21 @@ def compute_structural_geometry(spec: GeoSpec, grid: xr.Dataset) -> tuple[xr.Dat
             }
         )
 
-    depth_min = spec.grid.depth_origin_m
-    depth_max = depth_min + spec.grid.thickness_m
+    depth_min = structural_input.grid.depth_origin_m
+    depth_max = depth_min + structural_input.grid.thickness_m
     clipped = (source_depth < depth_min) | (source_depth >= depth_max)
     source_depth = np.clip(source_depth, depth_min, np.nextafter(depth_max, depth_min))
     combined_displacement = dd - source_depth
     stacked_faults = (
         np.stack(fault_selections).astype(bool)
         if fault_selections
-        else np.empty((0, spec.grid.ndepth, spec.grid.nx), dtype=bool)
+        else np.empty(
+            (0, structural_input.grid.ndepth, structural_input.grid.nx),
+            dtype=bool,
+        )
     )
     capability_id = "structural_geometry"
-    method_id = spec.structural_method.method_id
+    method_id = structural_input.structural_method_id
     fragment = xr.Dataset(
         data_vars={
             "source_depth_m": (
@@ -178,37 +188,47 @@ def compute_structural_geometry(spec: GeoSpec, grid: xr.Dataset) -> tuple[xr.Dat
         "long_name": "persistent Fault Entity identifier",
     }
     return fragment, {
-        "structure_count": len(spec.structures),
+        "structure_count": len(structural_input.structures),
         "fault_count": len(fault_entity_ids),
         "clipped_cell_count": int(np.count_nonzero(clipped)),
-        "operation_order": [structure.id for structure in spec.structures],
+        "operation_order": [structure.id for structure in structural_input.structures],
         "faults": fault_diagnostics,
     }
 
 
 def assign_stratigraphic_fields(
-    spec: GeoSpec,
+    structural_input: CompiledStructuralInput,
     dataset: xr.Dataset,
 ) -> tuple[xr.Dataset, dict[str, Any]]:
     """Assign explicit formation, facies, porosity, and reservoir-role values."""
-    boundaries = spec.grid.depth_origin_m + np.cumsum(
-        [layer.thickness_m for layer in spec.layers]
+    boundaries = structural_input.grid.depth_origin_m + np.cumsum(
+        [layer.thickness_m for layer in structural_input.formations]
     )
     source_depth = np.asarray(dataset["source_depth_m"].values)
     layer_index = np.searchsorted(boundaries, source_depth, side="right")
-    layer_index = np.clip(layer_index, 0, len(spec.layers) - 1).astype(np.int16)
-    facies_by_id = {facies.id: facies for facies in spec.facies}
+    layer_index = np.clip(
+        layer_index, 0, len(structural_input.formations) - 1
+    ).astype(np.int16)
+    facies_by_id = {facies.id: facies for facies in structural_input.facies}
     facies_codes = np.asarray(
-        [facies_by_id[layer.facies_id].code for layer in spec.layers], dtype=np.int16
+        [
+            facies_by_id[layer.facies_id].code
+            for layer in structural_input.formations
+        ],
+        dtype=np.int16,
     )
     porosities = np.asarray(
-        [layer.porosity_fraction for layer in spec.layers], dtype=float
+        [layer.porosity_fraction for layer in structural_input.formations],
+        dtype=float,
     )
-    reservoir_roles = np.asarray([layer.is_reservoir for layer in spec.layers], dtype=bool)
+    reservoir_roles = np.asarray(
+        [layer.is_reservoir for layer in structural_input.formations],
+        dtype=bool,
+    )
     facies = facies_codes[layer_index]
     porosity = porosities[layer_index]
     reservoir_selection = reservoir_roles[layer_index]
-    facies_map = {item.code: item.id for item in spec.facies}
+    facies_map = {item.code: item.id for item in structural_input.facies}
     flag_values = sorted(facies_map)
     capability_id = "stratigraphic_assignment"
     method_id = "explicit_layer_lookup_v1"
@@ -221,7 +241,10 @@ def assign_stratigraphic_fields(
                 _attrs(
                     "1", "zero-based explicit Formation index", "computational_field",
                     capability_id, method_id,
-                    formation_entity_ids=[f"formation:{layer.id}" for layer in spec.layers],
+                    formation_entity_ids=[
+                        f"formation:{layer.id}"
+                        for layer in structural_input.formations
+                    ],
                 ),
             ),
             "facies": (
@@ -255,7 +278,7 @@ def assign_stratigraphic_fields(
         coords=coords,
     )
     return fragment, {
-        "formation_count": len(spec.layers),
+        "formation_count": len(structural_input.formations),
         "facies_codes": flag_values,
         "reservoir_cell_count": int(np.count_nonzero(reservoir_selection)),
     }

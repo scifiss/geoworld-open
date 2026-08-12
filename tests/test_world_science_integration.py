@@ -1,4 +1,5 @@
 import hashlib
+import json
 from pathlib import Path
 
 import numpy as np
@@ -11,20 +12,6 @@ from geoworld_open.world import SubjectKind, ValueKind
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE = ROOT / "examples" / "scenarios" / "structural_multifault.yaml"
-
-PHASE2_ARRAY_HASHES = {
-    "source_depth_m": "ae53e63b6eb9e609e3805a4df343cab14bae9abfc0c3fa2bbebcdfbe10762319",
-    "structural_displacement_m": "6bf421c5f4a2f078e75b14a98fbe3d612d9b42ab49121686e334abc959a3c34c",
-    "fold_displacement_m": "9e1b866c4364951db8d6e5de1f6710c89976f763ea04e7f4c91a5e9b66ce3e4e",
-    "fault_displacement_m": "c8b43716416e4e59954c911cfb1687289a9cc5a2142757a94f21c4fdc34d7eed",
-    "fault_selection": "31c3ff2fcf7ffe3589d22544e60aaeb7c5d740d31832bdf5883be7a3cec0c885",
-    "boundary_clipped_mask": "ad539bb65c7455ec9e75e92b585cf7b7a79889f6ffc789a8da604b6d010242af",
-    "layer_index": "40393e27be5df3fa61c8cd576ce10ae5ab27c33983231ea0898f4cc584a3e62a",
-    "facies": "d4f2b915d3290491c5d03b183333525322ff157b9b13f46c8ecdaaaf744e5ae9",
-    "porosity": "3c35c1c1cd9929baaaf843c56fdda7b2444ec89c302d268ef865db85e725e1a3",
-    "reservoir_selection": "cec03a6a2e6e16de1fc9a87ce60b436f1cbf3c6dc4ea2d28b9920e80790290f4",
-}
-
 
 def _result():
     return run_structural_world(load_geospec(EXAMPLE))
@@ -84,7 +71,9 @@ def test_transition_is_immutable_and_provenance_covers_every_output() -> None:
     result = _result()
     assert len(result.initial_world.states) == 1
     assert not result.initial_world.field_bindings
-    assert not result.initial_world.representations
+    assert [item.representation_id for item in result.initial_world.representations] == [
+        "representation:structural-input"
+    ]
     assert len(result.world.states) == 2
     assert result.world.state(result.final_state_id).parent_state_id == result.initial_state_id
     provenance_outputs = {ref for item in result.world.provenance for ref in item.outputs}
@@ -113,7 +102,13 @@ def test_same_spec_and_seed_have_identical_semantic_and_numerical_hashes() -> No
 
 def test_gate3_arrays_match_frozen_phase2_reference_hashes() -> None:
     dataset = _result().dataset
-    for name, expected in PHASE2_ARRAY_HASHES.items():
+    fixture = json.loads(
+        (ROOT / "tests" / "fixtures" / "phase2_structural_regression.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert fixture["source_commit"] == "10b43f00abd456ccbb85653898250bfdfd748fcb"
+    for name, expected in fixture["array_sha256"].items():
         values = np.ascontiguousarray(dataset[name].values)
         assert hashlib.sha256(values.tobytes()).hexdigest() == expected
 
