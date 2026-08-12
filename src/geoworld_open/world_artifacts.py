@@ -1,0 +1,216 @@
+"""Inspectable artifacts for the semantic structural World workflow."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import platform
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import yaml
+
+from geoworld_open import __version__
+from geoworld_open.domains.geoscience.structural import StructuralWorldResult
+from geoworld_open.world import dataset_content_sha256
+from geoworld_open.world_diagnostics import save_structural_world_diagnostic
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _write_json(path: Path, payload: Any) -> None:
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _normalized_spec_bytes(result: StructuralWorldResult) -> bytes:
+    payload = result.spec.model_dump(mode="json", exclude_none=True)
+    return yaml.safe_dump(payload, sort_keys=False).encode("utf-8")
+
+
+def _dataset_metadata(result: StructuralWorldResult) -> dict[str, Any]:
+    dataset = result.dataset
+    return {
+        "dimensions": {name: int(size) for name, size in dataset.sizes.items()},
+        "coordinates": {
+            name: {
+                "dimensions": list(value.dims),
+                "shape": list(value.shape),
+                "dtype": str(value.dtype),
+                "attributes": dict(value.attrs),
+            }
+            for name, value in dataset.coords.items()
+        },
+        "variables": {
+            name: {
+                "dimensions": list(value.dims),
+                "shape": list(value.shape),
+                "dtype": str(value.dtype),
+                "attributes": dict(value.attrs),
+            }
+            for name, value in dataset.data_vars.items()
+        },
+        "content_sha256": dataset_content_sha256(dataset),
+    }
+
+
+def _world_summary(result: StructuralWorldResult) -> dict[str, Any]:
+    world = result.world
+    return {
+        "world_id": world.world_id,
+        "origin": world.origin.value,
+        "initial_state_id": result.initial_state_id,
+        "final_state_id": result.final_state_id,
+        "state_lineage": {
+            result.final_state_id: world.state(result.final_state_id).parent_state_id,
+        },
+        "entities": [
+            {
+                "entity_id": item.entity_id,
+                "entity_type": item.entity_type,
+                "label": item.label,
+            }
+            for item in world.entities
+        ],
+        "relations": [item.model_dump(mode="json") for item in world.relations],
+        "field_definitions": [
+            item.model_dump(mode="json") for item in world.field_definitions
+        ],
+        "field_bindings": [item.model_dump(mode="json") for item in world.field_bindings],
+        "representations": [
+            item.model_dump(mode="json") for item in world.representations
+        ],
+    }
+
+
+def write_world_artifacts(
+    result: StructuralWorldResult,
+    output_dir: str | Path,
+    overwrite: bool = False,
+) -> Path:
+    """Write a complete semantic World run without private paths or user data."""
+    output = Path(output_dir)
+    if output.exists() and any(output.iterdir()) and not overwrite:
+        raise FileExistsError(f"output directory is not empty: {output}")
+    output.mkdir(parents=True, exist_ok=True)
+    arrays_dir = output / "arrays"
+    coordinates_dir = output / "coordinates"
+    arrays_dir.mkdir(exist_ok=True)
+    coordinates_dir.mkdir(exist_ok=True)
+
+    normalized_spec = _normalized_spec_bytes(result)
+    (output / "geospec.yaml").write_bytes(normalized_spec)
+    dataset = result.dataset
+    for name, value in sorted(dataset.coords.items()):
+        np.save(coordinates_dir / f"{name}.npy", value.values, allow_pickle=False)
+    for name, value in sorted(dataset.data_vars.items()):
+        np.save(arrays_dir / f"{name}.npy", value.values, allow_pickle=False)
+
+    _write_json(output / "world.json", result.world.model_dump(mode="json"))
+    _write_json(output / "world_summary.json", _world_summary(result))
+    _write_json(output / "dataset_metadata.json", _dataset_metadata(result))
+    _write_json(
+        output / "execution_plan.json",
+        {
+            "capability_order": list(result.plan.capability_ids),
+            "capabilities": list(result.numerical.trace),
+            "root_seed": result.spec.seed,
+            "seed_lineage": result.numerical.seed_lineage,
+        },
+    )
+    _write_json(output / "trace.json", list(result.numerical.trace))
+    _write_json(output / "diagnostics.json", result.numerical.diagnostics)
+    _write_json(
+        output / "provenance.json",
+        [item.model_dump(mode="json") for item in result.world.provenance],
+    )
+
+    if result.spec.outputs.save_diagnostic_figure:
+        save_structural_world_diagnostic(result, output / "structure_diagnostic.png")
+
+    report = [
+        f"# {result.spec.metadata.name}",
+        "",
+        result.spec.metadata.description,
+        "",
+        "## Semantic result",
+        "",
+        f"- World: `{result.world.world_id}`",
+        f"- Initial state: `{result.initial_state_id}`",
+        f"- Final state: `{result.final_state_id}`",
+        f"- Formation entities: {sum(item.entity_type == 'geoscience:formation' for item in result.world.entities)}",
+        f"- Fault entities: {sum(item.entity_type == 'geoscience:fault' for item in result.world.entities)}",
+        "",
+        "## Assumptions",
+        "",
+        *[f"- {item}" for item in result.spec.assumptions],
+        "",
+        "## Scope",
+        "",
+        "This deterministic structural result contains formations, faults, categorical facies,",
+        "explicit porosity, reservoir-role selection, source-depth mapping, and diagnostics.",
+        "It contains no inferred elastic properties, fluids, seismic, AVO, or uncertainty model.",
+    ]
+    (output / "report.md").write_text("\n".join(report) + "\n", encoding="utf-8")
+
+    artifact_paths = sorted(
+        item for item in output.rglob("*") if item.is_file() and item.name != "manifest.json"
+    )
+    representations = {
+        f"{item.representation_id}@{item.version}": item.content_sha256
+        for item in result.world.representations
+    }
+    manifest = {
+        "manifest_schema_version": "3.0",
+        "software": {
+            "name": "geoworld-open",
+            "version": __version__,
+            "python_version": platform.python_version(),
+        },
+        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "workflow": "structural-world",
+        "input_spec_sha256": hashlib.sha256(normalized_spec).hexdigest(),
+        "world_id": result.world.world_id,
+        "initial_state_id": result.initial_state_id,
+        "final_state_id": result.final_state_id,
+        "root_seed": result.spec.seed,
+        "seed_lineage": result.numerical.seed_lineage,
+        "capabilities": list(result.numerical.trace),
+        "representation_hashes": representations,
+        "numerical_dataset_sha256": dataset_content_sha256(dataset),
+        "diagnostics": result.numerical.diagnostics,
+        "limitations": [
+            "Synthetic structural geology for education and research, not field interpretation.",
+            "Formation properties and structural geometry are explicit input assumptions.",
+            "External artifact immutability depends on independently verified checksums.",
+        ],
+        "artifacts": [
+            {
+                "path": str(item.relative_to(output)),
+                "bytes": item.stat().st_size,
+                "sha256": file_sha256(item),
+            }
+            for item in artifact_paths
+        ],
+    }
+    _write_json(output / "manifest.json", manifest)
+    return output
+
+
+def verify_world_artifact_checksums(output_dir: str | Path) -> None:
+    """Raise when any artifact recorded in a semantic run manifest changed."""
+    output = Path(output_dir)
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    for item in manifest["artifacts"]:
+        path = output / item["path"]
+        if not path.is_file():
+            raise ValueError(f"manifest artifact is missing: {item['path']}")
+        if file_sha256(path) != item["sha256"]:
+            raise ValueError(f"manifest checksum mismatch: {item['path']}")
