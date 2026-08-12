@@ -66,7 +66,7 @@ def _canonical_bundles(result: StructuralWorldResult):
     return (result.geometry_bundle, result.stratigraphy_bundle)
 
 
-def _artifact_relative_path(uri: str) -> Path:
+def artifact_relative_path(uri: str) -> Path:
     prefix = "artifact://"
     if not uri.startswith(prefix):
         raise ValueError(f"Representation does not have a portable artifact URI: {uri!r}")
@@ -76,7 +76,7 @@ def _artifact_relative_path(uri: str) -> Path:
     return path
 
 
-def _write_representation_bundle(output: Path, bundle) -> None:
+def write_representation_bundle(output: Path, bundle) -> None:
     dataset = bundle.to_dataset()
     representation = bundle.representation
     actual_hash = dataset_content_sha256(dataset)
@@ -86,7 +86,7 @@ def _write_representation_bundle(output: Path, bundle) -> None:
             "does not match its Representation hash"
         )
 
-    descriptor_path = output / _artifact_relative_path(representation.artifact_uri)
+    descriptor_path = output / artifact_relative_path(representation.artifact_uri)
     descriptor_path.parent.mkdir(parents=True, exist_ok=True)
     descriptor: dict[str, Any] = {
         "schema_version": "1.0",
@@ -114,7 +114,10 @@ def _write_representation_bundle(output: Path, bundle) -> None:
     _write_json(descriptor_path, descriptor)
 
 
-def _load_representation_dataset(output: Path, descriptor_path: Path) -> tuple[dict[str, Any], xr.Dataset]:
+def load_representation_dataset(
+    output: Path,
+    descriptor_path: Path,
+) -> tuple[dict[str, Any], xr.Dataset]:
     descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
     coordinates: dict[str, Any] = {}
     variables: dict[str, Any] = {}
@@ -194,7 +197,7 @@ def write_world_artifacts(
     (inputs_dir / "structural-input.yaml").write_bytes(normalized_spec)
     dataset = result.dataset
     for bundle in _canonical_bundles(result):
-        _write_representation_bundle(output, bundle)
+        write_representation_bundle(output, bundle)
     if result.structural_input.outputs.save_arrays:
         for name, value in sorted(dataset.coords.items()):
             np.save(coordinates_dir / f"{name}.npy", value.values, allow_pickle=False)
@@ -318,15 +321,15 @@ def verify_world_artifact_checksums(output_dir: str | Path) -> None:
         for item in world["representations"]
     }
     input_representation = representations[("representation:structural-input", "v1")]
-    input_path = output / _artifact_relative_path(input_representation["artifact_uri"])
+    input_path = output / artifact_relative_path(input_representation["artifact_uri"])
     if hashlib.sha256(input_path.read_bytes()).hexdigest() != input_representation["content_sha256"]:
         raise ValueError("structural input artifact does not match its Representation hash")
 
     for key, representation in representations.items():
         if key == ("representation:structural-input", "v1"):
             continue
-        descriptor_path = output / _artifact_relative_path(representation["artifact_uri"])
-        descriptor, dataset = _load_representation_dataset(output, descriptor_path)
+        descriptor_path = output / artifact_relative_path(representation["artifact_uri"])
+        descriptor, dataset = load_representation_dataset(output, descriptor_path)
         actual_hash = dataset_content_sha256(dataset)
         if descriptor["content_sha256"] != representation["content_sha256"]:
             raise ValueError(

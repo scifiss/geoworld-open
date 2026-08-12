@@ -684,9 +684,10 @@ class StructuralTransition:
         )
 
 
-def run_structural_world(spec: GeoSpec) -> StructuralWorldResult:
-    """Run structural science through the semantic World transition boundary."""
-    structural_input = compile_structural_input(spec)
+def run_compiled_structural_world(
+    structural_input: CompiledStructuralInput,
+) -> StructuralWorldResult:
+    """Run one immutable compiled input through the semantic World boundary."""
     initial_world = bootstrap_structural_world(structural_input)
     plan = compile_plan(structural_capabilities())
     transition = StructuralTransition(structural_input, plan)
@@ -706,3 +707,8 @@ def run_structural_world(spec: GeoSpec) -> StructuralWorldResult:
         geometry_bundle=transition.geometry_bundle,
         stratigraphy_bundle=transition.stratigraphy_bundle,
     )
+
+
+def run_structural_world(spec: GeoSpec) -> StructuralWorldResult:
+    """Compile one GeoSpec and run structural science through the World boundary."""
+    return run_compiled_structural_world(compile_structural_input(spec))

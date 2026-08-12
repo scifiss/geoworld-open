@@ -65,5 +65,41 @@ def world_run(
     )
 
 
+@app.command("flagship-run")
+def flagship_run(
+    scenario: Path = typer.Argument(
+        ...,
+        exists=True,
+        readable=True,
+        help="Explicit flagship World YAML scenario.",
+    ),
+    output: Path = typer.Option(
+        Path("runs/flagship-world"),
+        "--output",
+        "-o",
+        help="Flagship World artifact directory.",
+    ),
+    overwrite: bool = typer.Option(
+        False,
+        "--overwrite",
+        help="Replace files in a non-empty output directory.",
+    ),
+) -> None:
+    """Run the bounded pressure-state and synthetic-observation demonstration."""
+    from geoworld_open.domains.geoscience.flagship import (
+        load_flagship_spec,
+        run_flagship_world,
+        write_flagship_artifacts,
+    )
+
+    result = run_flagship_world(load_flagship_spec(scenario))
+    path = write_flagship_artifacts(result, output, overwrite=overwrite)
+    typer.echo(
+        f"Completed flagship World {result.world.world_id}: "
+        f"{result.structural_result.final_state_id} -> state:flagship-baseline -> "
+        f"state:flagship-perturbed; {path.resolve()}"
+    )
+
+
 if __name__ == "__main__":
     app()
