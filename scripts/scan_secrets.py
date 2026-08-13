@@ -53,13 +53,15 @@ PLACEHOLDER_MARKERS = (
 PATTERNS = {
     "AWS access key": re.compile(r"(?:A" + r"KIA|ASIA)[A-Z0-9]{16}"),
     "GitHub token": re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"),
+    "GitHub fine-grained token": re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
     "OpenAI-style token": re.compile(r"sk-[A-Za-z0-9_-]{20,}"),
     "private key": re.compile(r"-----BEGIN (?:RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----"),
     "credential URL": re.compile(r"[a-z][a-z0-9+.-]*://[^\s/:]+:[^\s/@]+@[^\s]+", re.IGNORECASE),
 }
 ASSIGNMENT = re.compile(
-    r"(?i)\b(?:AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN|DATABASE_URL|JWT_SECRET|"
-    r"API_KEY|ACCESS_TOKEN|AUTH_TOKEN|PASSWORD)\s*=\s*([^\s#]+)"
+    r"(?i)\b(?:AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN|"
+    r"AWS_BEARER_TOKEN_BEDROCK|DATABASE_URL|JWT_SECRET|GITHUB_TOKEN|"
+    r"OPENAI_API_KEY|API_KEY|ACCESS_TOKEN|AUTH_TOKEN|PASSWORD)\s*=\s*([^\s#]+)"
 )
 
 
@@ -127,4 +129,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

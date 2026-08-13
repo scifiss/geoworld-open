@@ -1,0 +1,10 @@
+include CONTRIBUTING.md
+include LICENSE
+include NOTICE
+include README.md
+include SECURITY.md
+recursive-include apps *.py
+recursive-include docs *.md *.png
+recursive-include examples *.yaml
+recursive-include scripts *.py
+recursive-include tests *.py *.json

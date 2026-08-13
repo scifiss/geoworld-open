@@ -1,12 +1,20 @@
 # Contributing
 
-Contributions should preserve the bounded, transparent nature of GeoWorld Open.
+Contributions should preserve GeoWorld Open's deterministic scientific authority
+and explicit semantic contracts.
 
 1. Create an issue that states the scientific purpose and assumptions.
-2. Keep scenario parameters explicit and avoid opaque lithology defaults or hidden calibration.
-3. Add focused tests for equations, shapes, finite values, determinism, and invalid input.
-4. Do not contribute private datasets, production GeoWorld code, non-public algorithms, credentials, generated run directories, or unreviewed binary artifacts.
-5. Run:
+2. Keep scenario parameters explicit; avoid hidden calibration, network calls, or
+   required LLM behavior in scientific computation.
+3. Preserve typed contracts and the distinctions `Entity != Field`,
+   `Entity != Representation`, and `Observation != WorldState` where relevant.
+4. Record assumptions, immutable state/Representation lineage, and Provenance for
+   new World-centered scientific outputs.
+5. Add focused tests for equations, shapes, finite values, determinism, invalid
+   input, and reproducible artifacts.
+6. Do not contribute private datasets, production GeoWorld code, non-public
+   algorithms, credentials, generated runs, or unreviewed binary artifacts.
+7. Run:
 
    ```bash
    python -m pytest -q
@@ -14,6 +22,6 @@ Contributions should preserve the bounded, transparent nature of GeoWorld Open.
    python -m compileall -q src apps scripts tests
    ```
 
-6. Document scientific limitations and the derivation of any equation or example.
+8. Document scientific limitations and the derivation of any equation or example.
 
 By submitting a contribution, you agree that it is licensed under Apache-2.0 and that you have the right to provide it.
