@@ -37,6 +37,7 @@ def test_flagship_artifacts_are_complete_and_semantically_verified(tmp_path) -> 
         "assumptions.md",
         "flagship_execution.json",
         "flagship_diagnostic.png",
+        "flagship_public.png",
         "manifest.json",
     }
     found = {str(item.relative_to(output)) for item in output.rglob("*") if item.is_file()}
@@ -98,10 +99,11 @@ def test_flagship_diagnostic_output_option_is_honored(tmp_path) -> None:
     result = run_flagship_world(FlagshipSpec.model_validate(payload))
     output = write_flagship_artifacts(result, tmp_path / "minimal")
     assert not (output / "flagship_diagnostic.png").exists()
+    assert not (output / "flagship_public.png").exists()
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
-    assert "flagship_diagnostic.png" not in {
+    assert {"flagship_diagnostic.png", "flagship_public.png"}.isdisjoint({
         item["path"] for item in manifest["artifacts"]
-    }
+    })
     verify_flagship_artifacts(output)
 
 

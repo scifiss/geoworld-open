@@ -17,6 +17,9 @@ from geoworld_open.domains.geoscience.flagship.artifacts import (
     verify_flagship_artifacts,
     write_flagship_artifacts,
 )
+from geoworld_open.domains.geoscience.flagship.figures import (
+    save_flagship_public_figure,
+)
 
 __all__ = [
     "CompiledFlagshipInput",
@@ -28,6 +31,7 @@ __all__ = [
     "flagship_input_sha256",
     "load_flagship_spec",
     "run_flagship_world",
+    "save_flagship_public_figure",
     "verify_flagship_artifacts",
     "write_flagship_artifacts",
 ]

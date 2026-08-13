@@ -12,6 +12,9 @@ from geoworld_open import __version__
 from geoworld_open.domains.geoscience.flagship.diagnostics import (
     save_flagship_diagnostic,
 )
+from geoworld_open.domains.geoscience.flagship.figures import (
+    save_flagship_public_figure,
+)
 from geoworld_open.domains.geoscience.flagship.integration import (
     BASELINE_STATE_ID,
     PERTURBED_STATE_ID,
@@ -244,8 +247,12 @@ def write_flagship_artifacts(
     )
     if result.flagship_input.outputs.save_diagnostic_figure:
         save_flagship_diagnostic(result, output / "flagship_diagnostic.png")
-    elif (output / "flagship_diagnostic.png").exists():
-        (output / "flagship_diagnostic.png").unlink()
+        save_flagship_public_figure(result, output / "flagship_public.png")
+    else:
+        for figure_name in ("flagship_diagnostic.png", "flagship_public.png"):
+            figure_path = output / figure_name
+            if figure_path.exists():
+                figure_path.unlink()
 
     artifact_paths = sorted(
         item for item in output.rglob("*") if item.is_file() and item.name != "manifest.json"
