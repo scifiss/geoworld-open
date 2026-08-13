@@ -23,6 +23,17 @@ class SpatialImage:
     image: AxesImage
     style: QuantityStyle
     limits: tuple[float, float]
+    unit: str | None
+    colorbar_label: str
+
+
+def _colorbar_label(style: QuantityStyle, unit: str | None) -> str:
+    if style.categorical:
+        return style.label
+    resolved_unit = unit if unit is not None else style.default_unit
+    if not resolved_unit or resolved_unit in {"1", "fraction"}:
+        return style.label
+    return f"{style.label} ({resolved_unit})"
 
 
 def cell_edges(centers: np.ndarray) -> np.ndarray:
@@ -57,7 +68,6 @@ def plot_spatial_field(
     unit: str | None = None,
     limits: tuple[float, float] | None = None,
     category_labels: Mapping[int, str] | None = None,
-    physical_aspect: bool = False,
     vertical_exaggeration: float = 1.0,
 ) -> SpatialImage:
     array = np.asarray(values)
@@ -80,7 +90,7 @@ def plot_spatial_field(
         extent=cell_center_extent(np.asarray(x), np.asarray(depth)),
         origin="upper",
         interpolation="nearest",
-        aspect=vertical_exaggeration if physical_aspect else "auto",
+        aspect=vertical_exaggeration,
         cmap=cmap,
         norm=norm,
     )
@@ -88,7 +98,7 @@ def plot_spatial_field(
     axis.set_xlabel("x (m)")
     axis.set_ylabel("depth (m)")
     axis.grid(False)
-    if physical_aspect and vertical_exaggeration != 1.0:
+    if vertical_exaggeration != 1.0:
         axis.text(
             0.99,
             0.02,
@@ -101,7 +111,14 @@ def plot_spatial_field(
             bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.8, "pad": 1.5},
         )
     resolved_limits = (float(norm.vmin), float(norm.vmax))
-    return SpatialImage(image=image, style=style, limits=resolved_limits)
+    resolved_unit = unit if unit is not None else style.default_unit
+    return SpatialImage(
+        image=image,
+        style=style,
+        limits=resolved_limits,
+        unit=resolved_unit,
+        colorbar_label=_colorbar_label(style, unit),
+    )
 
 
 def attach_colorbar(
@@ -123,5 +140,5 @@ def attach_colorbar(
         pad=pad,
         ticks=ticks,
     )
-    colorbar.set_label(label or spatial.style.label)
+    colorbar.set_label(label or spatial.colorbar_label)
     return colorbar

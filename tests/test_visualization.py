@@ -9,16 +9,20 @@ import pytest
 from matplotlib.colors import BoundaryNorm, TwoSlopeNorm
 
 from geoworld_open.domains.geoscience.flagship import (
+    FlagshipSpec,
+    FlagshipWorldResult,
     load_flagship_spec,
     run_flagship_world,
 )
 from geoworld_open.domains.geoscience.flagship.figures import (
+    _intersecting_fault_mask,
     save_flagship_public_figure,
 )
 from geoworld_open.viz import (
     MISSING_COLOR,
     PRESETS,
     SUMMARY_PRESETS,
+    attach_colorbar,
     available_summary_panels,
     display_norm,
     plot_spatial_field,
@@ -88,6 +92,12 @@ def test_quantity_normalization_is_semantic_and_missing_values_are_neutral() -> 
         quantity_style("positive_perturbation"),
     )
     assert positive.vmin == 0.0
+    all_zero_positive = display_norm(
+        np.zeros((2, 2)),
+        quantity_style("positive_perturbation"),
+    )
+    assert all_zero_positive.vmin == 0.0
+    assert all_zero_positive.vmax > 0.0
 
     missing_rgba = quantity_style("pressure").cmap()(np.ma.masked)
     np.testing.assert_allclose(missing_rgba, mpl.colors.to_rgba(MISSING_COLOR))
@@ -99,7 +109,7 @@ def test_pressure_comparison_limits_are_shared() -> None:
     assert shared_limits(baseline, perturbed) == (1.0, 4.0)
 
 
-def test_spatial_plot_uses_cell_centers_and_does_not_mutate_values() -> None:
+def test_spatial_plot_uses_cell_centers_explicit_ve_and_units_without_mutation() -> None:
     values = np.asarray([[1.0, np.nan], [2.0, 3.0]])
     before = values.copy()
     figure, axis = plt.subplots()
@@ -110,12 +120,115 @@ def test_spatial_plot_uses_cell_centers_and_does_not_mutate_values() -> None:
         depth=np.asarray([2.5, 7.5]),
         quantity="pressure",
         title="Pressure",
-        physical_aspect=True,
         vertical_exaggeration=2.0,
     )
     assert spatial.image.get_extent() == [0.0, 20.0, 10.0, 0.0]
+    assert spatial.image.axes.get_aspect() == 2.0
+    assert [item.get_text() for item in axis.texts] == ["VE 2×"]
+    assert spatial.colorbar_label == "Pressure (MPa)"
+    colorbar = attach_colorbar(figure, spatial, axis)
+    assert colorbar.ax.get_ylabel() == "Pressure (MPa)"
     np.testing.assert_array_equal(values, before)
     plt.close(figure)
+
+
+def test_dimensionless_and_categorical_colorbar_labels_do_not_claim_units() -> None:
+    figure, axes = plt.subplots(1, 2)
+    coordinates = np.asarray([0.5, 1.5])
+    porosity = plot_spatial_field(
+        axes[0],
+        np.asarray([[0.1, 0.2], [0.2, 0.1]]),
+        x=coordinates,
+        depth=coordinates,
+        quantity="porosity",
+        title="Porosity",
+        unit="fraction",
+    )
+    facies = plot_spatial_field(
+        axes[1],
+        np.asarray([[1, 2], [2, 1]]),
+        x=coordinates,
+        depth=coordinates,
+        quantity="facies",
+        title="Facies",
+        unit="1",
+    )
+    assert porosity.colorbar_label == "Porosity"
+    assert facies.colorbar_label == "Facies"
+    plt.close(figure)
+
+
+def test_summary_default_and_override_never_use_automatic_aspect(
+    layered_scenario,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import geoworld_open.viz.summary as summary_module
+
+    result = run_workflow(layered_scenario)
+    original = summary_module.plot_spatial_field
+    seen: list[float] = []
+
+    def recording_plot(*args, **kwargs):
+        seen.append(kwargs["vertical_exaggeration"])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(summary_module, "plot_spatial_field", recording_plot)
+    save_summary_figure(result, tmp_path / "default.png")
+    assert set(seen) == {2.0}
+
+    seen.clear()
+    save_summary_figure(
+        result,
+        tmp_path / "physical.png",
+        panels=("porosity",),
+        vertical_exaggeration=1.0,
+    )
+    assert seen == [1.0]
+
+
+def test_flagship_selects_authored_intersecting_fault_not_first_fault() -> None:
+    payload = load_flagship_spec(FLAGSHIP).model_dump(mode="python")
+    payload["structural"]["structures"].insert(
+        1,
+        {
+            "kind": "fault",
+            "id": "decoy_fault",
+            "x_position_m": 1350.0,
+            "reference_depth_m": 250.0,
+            "dip_deg": 55.0,
+            "dip_direction": "negative_x",
+            "throw_m": 15.0,
+            "displacement": "normal",
+            "displaced_side": "negative_x",
+        },
+    )
+    result = run_flagship_world(FlagshipSpec.model_validate(payload))
+    faults = result.structural_dataset.coords["fault"].values.tolist()
+    assert faults == ["fault:decoy_fault", "fault:fault_f1"]
+
+    selected, persistent_fault_id = _intersecting_fault_mask(result)
+    assert persistent_fault_id == "fault:fault_f1"
+    np.testing.assert_array_equal(
+        selected,
+        result.structural_dataset["fault_selection"].sel(fault="fault:fault_f1"),
+    )
+    assert not np.array_equal(
+        selected,
+        result.structural_dataset["fault_selection"].isel(fault=0),
+    )
+
+
+def test_flagship_missing_authored_fault_fails_clearly(monkeypatch) -> None:
+    result = run_flagship_world(load_flagship_spec(FLAGSHIP))
+    missing_fault = result.structural_dataset.sel(fault=[])
+    monkeypatch.setattr(
+        FlagshipWorldResult,
+        "structural_dataset",
+        property(lambda _result: missing_fault),
+    )
+    with pytest.raises(ValueError, match="authored intersecting fault.*is absent"):
+        _intersecting_fault_mask(result)
 
 
 def test_summary_and_flagship_figures_are_headless_and_immutable(

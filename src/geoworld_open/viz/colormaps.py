@@ -86,8 +86,11 @@ def finite_limits(
         lower, upper = min(0.0, lower), max(0.0, upper)
     if lower == upper:
         padding = max(abs(lower) * 0.01, 1.0e-12)
-        lower -= padding
-        upper += padding
+        if include_zero and lower == 0.0:
+            upper = padding
+        else:
+            lower -= padding
+            upper += padding
     return lower, upper
 
 
@@ -144,6 +147,13 @@ def display_norm(
         finite = np.asarray(values)[np.isfinite(values)]
         categories = (0, 1) if style.binary else np.unique(finite)
         return categorical_norm(categories)
+    if style.zero_anchored:
+        finite = np.asarray(values, dtype=float)
+        finite = finite[np.isfinite(finite)]
+        if finite.size and np.any(finite < 0):
+            raise ValueError(
+                f"{style.quantity} values must be non-negative for zero-anchored display"
+            )
     lower, upper = limits or (
         symmetric_limits(values)
         if style.centered

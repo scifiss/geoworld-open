@@ -113,8 +113,9 @@ def save_summary_figure(
     *,
     panels: str | Iterable[str] | None = None,
     preset: str | FigurePreset = "compact",
+    vertical_exaggeration: float = 2.0,
 ) -> Path:
-    """Save a bounded, quantity-aware summary while preserving the old import API."""
+    """Save a bounded summary with physical aspect or explicitly labelled VE."""
     selected = resolve_summary_panels(result, panels)
     selected_preset = get_preset(preset)
     columns = min(3, len(selected))
@@ -146,12 +147,13 @@ def save_summary_figure(
                 title=f"{chr(65 + index)}. {panel.title}",
                 unit=panel.unit,
                 category_labels=category_labels,
+                vertical_exaggeration=vertical_exaggeration,
             )
             colorbar = attach_colorbar(
                 figure,
                 spatial,
                 axis,
-                label=("Layer" if category_labels else panel.unit or spatial.style.label),
+                label=("Layer" if category_labels else None),
                 ticks=list(category_labels) if category_labels else None,
             )
             if category_labels:

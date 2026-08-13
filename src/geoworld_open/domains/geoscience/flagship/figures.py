@@ -19,6 +19,23 @@ from geoworld_open.viz.spatial import attach_colorbar, plot_spatial_field
 from geoworld_open.viz.style import FigurePreset, get_preset, style_context
 
 
+def _intersecting_fault_mask(
+    result: FlagshipWorldResult,
+) -> tuple[np.ndarray, str]:
+    structural = result.structural_dataset
+    persistent_fault_id = (
+        f"fault:{result.flagship_input.reservoir_region.intersecting_fault_id}"
+    )
+    available = {str(value) for value in structural.coords["fault"].values.tolist()}
+    if persistent_fault_id not in available:
+        raise ValueError(
+            f"authored intersecting fault {persistent_fault_id!r} is absent from "
+            f"fault_selection coordinates {sorted(available)}"
+        )
+    mask = structural["fault_selection"].sel(fault=persistent_fault_id)
+    return np.asarray(mask.values, dtype=bool), persistent_fault_id
+
+
 def _add_spatial_context(
     axis: plt.Axes,
     result: FlagshipWorldResult,
@@ -28,16 +45,15 @@ def _add_spatial_context(
     show_observations: bool = False,
 ) -> None:
     structural = result.structural_dataset
-    fault_selection = np.asarray(structural["fault_selection"].values, dtype=bool)
-    if fault_selection.shape[0]:
-        draw_region_boundary(
-            axis,
-            x,
-            depth,
-            fault_selection[0],
-            color="#b91c1c",
-            label="Fault F1",
-        )
+    fault_selection, persistent_fault_id = _intersecting_fault_mask(result)
+    draw_region_boundary(
+        axis,
+        x,
+        depth,
+        fault_selection,
+        color="#b91c1c",
+        label=f"Fault ({persistent_fault_id})",
+    )
     draw_region_boundary(
         axis,
         x,
@@ -131,7 +147,6 @@ def save_flagship_public_figure(
             quantity="facies",
             title="A. Geological structure",
             category_labels=facies_labels,
-            physical_aspect=True,
             vertical_exaggeration=2.0,
         )
         _add_spatial_context(
@@ -156,7 +171,6 @@ def save_flagship_public_figure(
             quantity="porosity",
             title="B. Porosity",
             unit="fraction",
-            physical_aspect=True,
             vertical_exaggeration=2.0,
         )
         _add_spatial_context(axes[1], result, x=x, depth=depth)
@@ -171,7 +185,6 @@ def save_flagship_public_figure(
             title="C. Baseline pressure",
             unit="MPa",
             limits=pressure_limits,
-            physical_aspect=True,
             vertical_exaggeration=2.0,
         )
         _add_spatial_context(axes[2], result, x=x, depth=depth)
@@ -185,7 +198,6 @@ def save_flagship_public_figure(
             title="D. Analytic pressure perturbation",
             unit="MPa",
             limits=delta_limits,
-            physical_aspect=True,
             vertical_exaggeration=2.0,
         )
         _add_spatial_context(axes[3], result, x=x, depth=depth)
@@ -200,7 +212,6 @@ def save_flagship_public_figure(
             title="E. Perturbed pressure",
             unit="MPa",
             limits=pressure_limits,
-            physical_aspect=True,
             vertical_exaggeration=2.0,
         )
         _add_spatial_context(
