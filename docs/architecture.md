@@ -1,8 +1,50 @@
 # Architecture
 
-GeoWorld Open contains two deterministic public execution paths. The World-centered path is the architectural direction; the ordered-operator path remains a bounded, transparent seismic/AVO example.
+GeoWorld is an LLM-assisted scientific system with a deterministic authority boundary. The optional LLM/agent layer interprets requests, proposes typed actions, and explains results; GeoWorld Open validates and executes the public scientific computation beneath it.
 
-Neither path requires an LLM or a service-to-service deployment. The local Streamlit demo and CLI call the same public Python packages.
+GeoWorld Open contains two deterministic public execution paths. The World-centered path is the architectural direction; the ordered-operator path remains a bounded, transparent seismic/AVO example. Neither path requires an LLM or a service-to-service deployment. The local Streamlit demo and CLI call the same public Python packages.
+
+## System-level architecture
+
+```mermaid
+flowchart TD
+    U[User]
+    A[Optional LLM / agent layer]
+    V[Typed validated actions and results]
+
+    subgraph OPEN["GeoWorld Open - deterministic World"]
+        W[Semantic World + immutable WorldState]
+        P[ExecutionPlan]
+        C[Deterministic scientific capabilities]
+        R[Fields + Representations + Observations + Provenance]
+    end
+
+    U -->|request or question| A
+    A -->|proposed typed action| V
+    V --> W
+    W --> P
+    P --> C
+    C --> R
+    R -->|validated state and artifacts| A
+    A -->|explanation or next step| U
+```
+
+The LLM/agent layer shown above belongs to the separate private GeoWorld platform, not to this repository. It may understand natural-language intent, answer scientific questions, select workflows, propose parameters, and interpret outputs. It does not own numerical physics, bypass validation, or mutate World state directly.
+
+Agents act **above** the World rather than becoming a ninth World Kernel concept:
+
+```text
+Agent perceives Observation
+Agent maintains or uses estimated state and context
+Agent selects an Action or workflow
+Action invokes a deterministic capability through validated typed input
+WorldState changes through an immutable transition
+Observation provides new evidence
+```
+
+The implemented public kernel remains exactly `World`, `Entity`, `Relation`, `Representation`, `Field`, `WorldState`, `Observation`, and `Provenance`. Agent state, policies, prompts, routing, RAG, planning, and production orchestration remain outside the public kernel and outside this repository.
+
+The private production platform is being aligned with this World-centered foundation. GeoWorld Open does not claim that every deployed production route already consumes every current World Kernel module.
 
 ## World-centered path
 

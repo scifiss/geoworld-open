@@ -1,12 +1,21 @@
 # GeoWorld Open
 
+[![CI](https://github.com/scifiss/geoworld-open/actions/workflows/ci.yml/badge.svg)](https://github.com/scifiss/geoworld-open/actions/workflows/ci.yml)
+[![Secret Scan](https://github.com/scifiss/geoworld-open/actions/workflows/secret-scan.yml/badge.svg)](https://github.com/scifiss/geoworld-open/actions/workflows/secret-scan.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg)](https://www.python.org/downloads/)
+
 **GeoWorld Open is a deterministic semantic world-modeling framework for reproducible synthetic geoscience experiments.**
+
+In the broader GeoWorld architecture, an LLM can interpret natural-language scientific intent, select and parameterize validated workflows, and explain results. GeoWorld Open provides the deterministic execution and state substrate beneath that layer: typed world state, scientific capabilities, observations, Provenance, and reproducible artifacts.
 
 It separates scientific identity from numerical representation: a fault is not its mask, a reservoir region is not an array, and an observation is evidence rather than world state. Persistent entities and relations are connected to immutable `WorldState`, typed Fields and Representations, deterministic scientific capabilities, exact-input Provenance, and verified artifacts.
 
 > **LLMs may select, parameterize, and explain scientific workflows; deterministic scientific code performs the computation.**
 
-GeoWorld Open itself does not require an LLM, account, cloud service, or database. It exposes the deterministic scientific and world-model foundation in a bounded geoscience scope.
+> **LLM optional by design.** GeoWorld Open can run completely standalone for reproducible scientific experiments. In the full GeoWorld system, an LLM/agent layer sits above this deterministic core to translate natural-language intent into validated actions and explain the resulting state and artifacts.
+
+GeoWorld Open does not require an account, cloud service, or database. It exposes the deterministic scientific and world-model foundation in a bounded geoscience scope.
 
 ![GeoWorld Open flagship faulted-reservoir World](docs/assets/flagship_world_demo.png)
 
@@ -26,6 +35,77 @@ Many scientific pipelines collapse conceptual objects, numerical arrays, simulat
 
 The framework is intentionally geoscience-first. It is not presented as a general AGI platform.
 
+## Where the LLM fits
+
+The broader GeoWorld system is LLM-assisted, with a strict validation and computation boundary. The LLM/agent layer is optional and is not implemented in this public repository.
+
+```mermaid
+flowchart TD
+    U[User: question or modeling request]
+    L[LLM / agent orchestration]
+    V[Validated typed intent / GeoSpec]
+
+    subgraph OPEN["GeoWorld Open - deterministic scientific authority"]
+        C[Canonical scientific input]
+        W[Semantic World]
+        S[Immutable WorldState]
+        P[ExecutionPlan]
+        D[Deterministic scientific capabilities]
+        F[Fields + Representations]
+        N[New WorldState]
+        O[Observation / evidence]
+        R[Provenance + verified artifacts]
+    end
+
+    E[LLM explanation / next-step reasoning]
+
+    U --> L
+    L --> V
+    V --> C
+    C --> W
+    W --> S
+    S --> P
+    P --> D
+    D --> F
+    F --> N
+    N --> O
+    N --> R
+    O --> R
+    R --> E
+    E --> U
+```
+
+### The LLM does
+
+- understand natural-language requests and support scientific Q&A;
+- select an appropriate workflow or scientific capability;
+- propose parameters and typed inputs such as a GeoSpec;
+- explain assumptions, results, limitations, and possible next actions;
+- support iterative planning while remaining outside numerical authority.
+
+### The LLM does not
+
+- directly invent or execute numerical physics;
+- bypass schema and input validation;
+- become the authority for scientific arrays;
+- silently modify immutable `WorldState`;
+- replace deterministic scientific capabilities.
+
+### Public and private layers
+
+| Layer | Role | Repository |
+|---|---|---|
+| LLM / agent orchestration | Natural-language intent, Q&A, workflow selection, parameterization, and explanation | Private GeoWorld platform |
+| Scientific contracts / World | Entity identity, relations, states, observations, and Provenance | `geoworld-open` |
+| Deterministic scientific execution | Geology, scientific fields, synthetic experiments, and reproducible artifacts | `geoworld-open` |
+| Product operations | Authentication, jobs, persistence, deployment, quotas, and production UX | Private GeoWorld platform |
+
+## GeoWorld Studio
+
+The [deployed GeoWorld Studio](https://geoworld-studio.onrender.com/) demonstrates the broader LLM-assisted workflow. Authenticated users can ask scientific questions or describe a model in natural language; GeoWorld interprets the request, prepares validated scientific inputs, executes deterministic modeling code, and returns assumptions, figures, artifacts, state, and Provenance.
+
+GeoWorld Open is the public scientific foundation and architectural direction; the private production platform is being aligned with this World-centered foundation. This repository does not claim that every deployed production route already uses every current World Kernel module.
+
 ## Flagship world demonstration
 
 The flagship scenario defines upper shale, reservoir sand, and lower shale with a fold and tilted normal fault. It adds a persistent `ReservoirRegion`, a Well, illustrative baseline pressure and temperature, an analytic pressure perturbation, a new immutable state at synthetic model time, and deterministic noisy Well-pressure evidence.
@@ -35,11 +115,13 @@ The example demonstrates semantic and reproducibility contracts. It is **not** r
 - [Flagship faulted-reservoir scenario](examples/scenarios/flagship_faulted_reservoir.yaml)
 - [Flagship World scientific walkthrough](docs/gate4-flagship-world.md)
 
-## Architecture
+## Deterministic World execution
+
+This lower-level path shows where LLM authority ends. Once a proposed action crosses the validation boundary, canonical input and deterministic scientific code control execution:
 
 ```mermaid
 flowchart TD
-    A[Authored GeoSpec or scenario] --> C[Canonical scientific input]
+    A[Validated typed input] --> C[Canonical scientific input]
     C --> W[Semantic World]
     W --> E[Persistent Entities]
     W --> R[Typed Relations]
