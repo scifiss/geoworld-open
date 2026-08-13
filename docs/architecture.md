@@ -4,6 +4,8 @@ GeoWorld is an LLM-assisted scientific system with a deterministic authority bou
 
 GeoWorld Open contains two deterministic public execution paths. The World-centered path is the architectural direction; the ordered-operator path remains a bounded, transparent seismic/AVO example. Neither path requires an LLM or a service-to-service deployment. The local Streamlit demo and CLI call the same public Python packages.
 
+It also defines an implementation-neutral standard boundary. A local plugin can implement `PhysicsCapability`, while a protected solver or renderer can implement the same declared input/output and result contracts over HTTP. In neither case does public code import protected source.
+
 ## System-level architecture
 
 ```mermaid
@@ -118,6 +120,11 @@ Both execution paths follow the same public principles:
 
 ## Package map
 
+- `src/geoworld_open/standard/` — versioned capability, validity-domain, and 2D/3D/4D render contracts.
+- `src/geoworld_open/sdk/` — registration, serialization, artifact/World verification, and optional HTTP client.
+- `src/geoworld_open/benchmarks/` — packaged scientific and render inputs plus reproducibility evaluation.
+- `src/geoworld_open/conformance/` — checks for capabilities, Worlds, transitions, render results, and manifests.
+- `src/geoworld_open/reference/` — minimal transparent examples needed to exercise the standard.
 - `src/geoworld_open/world/` — eight-concept kernel contracts, reference integrity, immutable transitions, temporal values, and xarray Representation adapters.
 - `src/geoworld_open/specs/` — typed geoscience authoring models used by the World-centered structural path.
 - `src/geoworld_open/engine/` — capability registry, execution planning, variable contracts, and deterministic seed namespaces.
@@ -175,6 +182,8 @@ Public scientific extensions should:
 - include deterministic numerical and semantic tests.
 
 Domain ontologies, advanced physics, inference policy, agent orchestration, and product configuration are not responsibilities of the minimal kernel.
+
+The normative public interface is summarized in [GeoWorld Open Standard 1.0](../spec/v1/README.md). The complete public/protected classification is recorded in [Open Standard and Protected Engine Boundary](open-standard-boundary.md).
 
 ## Further reading
 

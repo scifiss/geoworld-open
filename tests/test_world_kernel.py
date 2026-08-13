@@ -10,6 +10,7 @@ import pytest
 import xarray as xr
 from pydantic import ValidationError
 
+from geoworld_open.conformance import check_transition
 from geoworld_open.world import (
     GROUND_TRUTH_SCOPE,
     FieldBinding,
@@ -225,6 +226,16 @@ def test_one_field_definition_is_reused_across_states() -> None:
     assert old_binding.world_state_id != new_binding.world_state_id
     assert old_binding.subject != new_binding.subject
     assert old_binding.representation != new_binding.representation
+
+
+def test_public_conformance_accepts_valid_state_transition() -> None:
+    fixture = build_kernel_fixture("reservoir")
+    report = check_transition(
+        fixture.world,
+        fixture.state_id,
+        DeterministicContractTransition(target_entity_id="well-w1"),
+    )
+    assert report.conforms, report.issues
 
 
 def test_observation_is_evidence_not_world_state() -> None:

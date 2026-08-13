@@ -1,0 +1,68 @@
+schema_version: "1.0"
+name: co2_monitoring
+description: A bounded synthetic CO2 saturation change clipped to an explicit reservoir layer.
+seed: 23
+grid:
+  nx: 180
+  nz: 120
+  dx_m: 10.0
+  dz_m: 5.0
+layers:
+  - name: overburden_shale
+    lithology: shale
+    thickness_m: 220.0
+    porosity: 0.07
+    saturation: 1.0
+    vp_m_s: 3250.0
+    vs_m_s: 1800.0
+    density_kg_m3: 2400.0
+  - name: storage_sand
+    lithology: sand
+    thickness_m: 170.0
+    porosity: 0.27
+    saturation: 0.92
+    vp_m_s: 2750.0
+    vs_m_s: 1500.0
+    density_kg_m3: 2200.0
+  - name: underburden_shale
+    lithology: shale
+    thickness_m: 210.0
+    porosity: 0.09
+    saturation: 1.0
+    vp_m_s: 3400.0
+    vs_m_s: 1880.0
+    density_kg_m3: 2440.0
+fold:
+  amplitude_m: 18.0
+  wavelength_m: 1500.0
+  phase_deg: 0.0
+co2_change:
+  target_layer: storage_sand
+  center_x_m: 950.0
+  center_z_m: 305.0
+  radius_x_m: 280.0
+  radius_z_m: 52.0
+  saturation: 0.60
+  vp_multiplier: 0.93
+  vs_multiplier: 0.99
+  density_multiplier: 0.97
+geophysics:
+  wavelet_frequency_hz: 25.0
+  sample_interval_s: 0.002
+  wavelet_duration_s: 0.128
+  angles_deg: [5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0]
+  angle_bands:
+    - name: low
+      min_deg: 3.0
+      max_deg: 17.0
+    - name: mid
+      min_deg: 17.0
+      max_deg: 31.0
+    - name: high
+      min_deg: 31.0
+      max_deg: 45.0
+assumptions:
+  - The saturation change is an explicit ellipse clipped to storage_sand.
+  - Property multipliers are illustrative scenario inputs and are not a fluid-substitution calculation.
+  - No flow simulation, pressure coupling, or time-lapse inversion is performed.
+  - AVO uses a linearized Aki-Richards approximation and is not an inversion.

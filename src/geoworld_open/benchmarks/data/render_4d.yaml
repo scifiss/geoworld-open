@@ -1,0 +1,36 @@
+request_id: render-benchmark-4d
+world_id: world-benchmark
+state_id: state-monitoring
+spec:
+  render_id: public-time-lapse
+  dimension: 4d
+  layers:
+    - layer_id: saturation-change
+      field_id: field:saturation-change
+      representation:
+        kind: representation
+        subject_id: representation:saturation-time-lapse
+        representation_version: v1
+      support_id: support:volume-time
+      unit: fraction
+      color_scale:
+        kind: diverging
+        palette: coolwarm
+        minimum: -0.5
+        maximum: 0.5
+        center: 0.0
+  camera_3d:
+    position: [2000.0, -1500.0, 1000.0]
+    target: [800.0, 400.0, 300.0]
+  time_sequence:
+    times:
+      - relative_value: 0.0
+        relative_unit: days
+      - relative_value: 30.0
+        relative_unit: days
+    frames_per_second: 12.0
+    loop: true
+  output:
+    format: mp4
+    width_px: 1920
+    height_px: 1080

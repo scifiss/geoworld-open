@@ -1,0 +1,28 @@
+request_id: render-benchmark-2d
+world_id: world-benchmark
+state_id: state-baseline
+spec:
+  render_id: public-depth-section
+  dimension: 2d
+  layers:
+    - layer_id: porosity
+      field_id: field:porosity
+      representation:
+        kind: representation
+        subject_id: representation:porosity
+        representation_version: v1
+      support_id: support:depth-section
+      unit: fraction
+      color_scale:
+        kind: sequential
+        palette: viridis
+        minimum: 0.0
+        maximum: 0.35
+  view_2d:
+    x_axis: x
+    y_axis: depth
+    vertical_exaggeration: 2.0
+  output:
+    format: png
+    width_px: 1600
+    height_px: 900

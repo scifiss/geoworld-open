@@ -1,0 +1,64 @@
+schema_version: "1.0"
+name: layered_reservoir
+description: An explicit shale-sand-shale section with a gentle fold and one planar fault.
+seed: 17
+grid:
+  nx: 160
+  nz: 100
+  dx_m: 10.0
+  dz_m: 5.0
+layers:
+  - name: upper_shale
+    lithology: shale
+    thickness_m: 170.0
+    porosity: 0.08
+    saturation: 1.0
+    vp_m_s: 3200.0
+    vs_m_s: 1750.0
+    density_kg_m3: 2380.0
+  - name: reservoir_sand
+    lithology: sand
+    thickness_m: 150.0
+    porosity: 0.24
+    saturation: 0.85
+    vp_m_s: 2700.0
+    vs_m_s: 1450.0
+    density_kg_m3: 2180.0
+  - name: lower_shale
+    lithology: shale
+    thickness_m: 180.0
+    porosity: 0.09
+    saturation: 1.0
+    vp_m_s: 3350.0
+    vs_m_s: 1850.0
+    density_kg_m3: 2420.0
+fold:
+  amplitude_m: 25.0
+  wavelength_m: 1200.0
+  phase_deg: 20.0
+fault:
+  x_position_m: 850.0
+  reference_depth_m: 250.0
+  dip_degrees: 60.0
+  throw_m: 45.0
+  downthrown_side: right
+geophysics:
+  wavelet_frequency_hz: 28.0
+  sample_interval_s: 0.002
+  wavelet_duration_s: 0.128
+  angles_deg: [5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0]
+  angle_bands:
+    - name: low
+      min_deg: 3.0
+      max_deg: 17.0
+    - name: mid
+      min_deg: 17.0
+      max_deg: 31.0
+    - name: high
+      min_deg: 31.0
+      max_deg: 45.0
+assumptions:
+  - Layer elastic properties are explicit illustrative constants, not calibrated field estimates.
+  - Fold displacement is sinusoidal and the fault is a planar displacement surface.
+  - The vertical grid is treated as a depth-sample axis for illustrative convolution.
+  - AVO uses a linearized Aki-Richards approximation and is not an inversion.

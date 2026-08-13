@@ -1,0 +1,29 @@
+request_id: render-benchmark-3d
+world_id: world-benchmark
+state_id: state-baseline
+spec:
+  render_id: public-volume-view
+  dimension: 3d
+  layers:
+    - layer_id: saturation
+      field_id: field:saturation
+      representation:
+        kind: representation
+        subject_id: representation:saturation-volume
+        representation_version: v1
+      support_id: support:volume
+      unit: fraction
+      color_scale:
+        kind: sequential
+        palette: cividis
+        minimum: 0.0
+        maximum: 1.0
+  camera_3d:
+    position: [2000.0, -1500.0, 1000.0]
+    target: [800.0, 400.0, 300.0]
+    up: [0.0, 0.0, 1.0]
+    field_of_view_deg: 45.0
+  output:
+    format: html
+    width_px: 1600
+    height_px: 900

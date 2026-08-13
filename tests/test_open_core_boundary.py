@@ -14,6 +14,14 @@ BANNED_IMPORT_ROOTS = {
     "sqlalchemy",
 }
 
+PROTECTED_SOURCE_TERMS = {
+    "geoworld.agents",
+    "geoworld.api",
+    "geoworld.llm",
+    "geoworld.memory",
+    "geoworld.vendor",
+}
+
 
 def test_public_source_does_not_import_private_or_production_packages() -> None:
     failures: list[str] = []
@@ -31,6 +39,16 @@ def test_public_source_does_not_import_private_or_production_packages() -> None:
             if name == "geoworld" or name.startswith("geoworld.") or root in BANNED_IMPORT_ROOTS:
                 failures.append(f"{path.relative_to(ROOT)} imports {name}")
     assert not failures, "\n".join(failures)
+
+
+def test_public_source_contains_no_private_module_dependency() -> None:
+    failures: list[str] = []
+    for path in (ROOT / "src").rglob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        for term in PROTECTED_SOURCE_TERMS:
+            if term in source:
+                failures.append(f"{path.relative_to(ROOT)} references {term}")
+    assert failures == []
 
 
 def test_public_tree_has_no_production_configuration_files() -> None:

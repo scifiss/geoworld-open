@@ -1,0 +1,42 @@
+benchmark_version: "1.0"
+cases:
+  - benchmark_id: faulted-reservoir
+    title: Faulted reservoir World
+    runner: flagship
+    input_resource: flagship_faulted_reservoir.yaml
+    tags: [world, fault, reservoir]
+    expected_artifacts: [world.json, state_lineage.json, flagship_public.png, manifest.json]
+    expected_arrays:
+      - {path: arrays/porosity.npy, shape: [120, 160], dtype: float64}
+  - benchmark_id: multi-fault-structure
+    title: Multi-fault structural World
+    runner: world
+    input_resource: structural_multifault.yaml
+    tags: [world, structure, multifault]
+    expected_artifacts: [world.json, structure_diagnostic.png, manifest.json]
+    expected_arrays:
+      - {path: arrays/porosity.npy, shape: [120, 180], dtype: float64}
+  - benchmark_id: seismic-avo
+    title: Layered seismic and AVO reference
+    runner: legacy
+    input_resource: layered_reservoir.yaml
+    tags: [seismic, avo, reference]
+    expected_artifacts: [arrays/avo_stack_low.npy, arrays/synthetic_seismic.npy, summary.png, manifest.json]
+    expected_arrays:
+      - {path: arrays/porosity.npy, shape: [100, 160], dtype: float64}
+  - benchmark_id: co2-monitoring
+    title: Synthetic CO2 monitoring change
+    runner: legacy
+    input_resource: co2_monitoring.yaml
+    tags: [co2, monitoring, reference]
+    expected_artifacts: [arrays/co2_change_mask.npy, arrays/saturation.npy, summary.png, manifest.json]
+    expected_arrays:
+      - {path: arrays/porosity.npy, shape: [120, 180], dtype: float64}
+  - benchmark_id: state-observation
+    title: Immutable state and observation evidence
+    runner: flagship
+    input_resource: flagship_faulted_reservoir.yaml
+    tags: [worldstate, observation, provenance]
+    expected_artifacts: [world.json, state_lineage.json, observations/well-pressure.json, provenance.json, manifest.json]
+    expected_arrays:
+      - {path: arrays/porosity.npy, shape: [120, 160], dtype: float64}

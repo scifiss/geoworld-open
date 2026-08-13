@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use GeoWorld Open, cite this software and the benchmark version used."
+title: "GeoWorld Open: Semantic World Contracts and Reproducible Geoscience Benchmarks"
+type: software
+authors:
+  - name: "scifiss"
+repository-code: "https://github.com/scifiss/geoworld-open"
+url: "https://geoworld-studio.onrender.com/"
+license: Apache-2.0
+version: 0.1.0
+keywords:
+  - geoscience
+  - world model
+  - scientific computing
+  - provenance
+  - reproducibility
+  - benchmark

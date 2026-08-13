@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "geoworld-open"
 version = "0.1.0"
-description = "Deterministic semantic world modeling for reproducible synthetic geoscience experiments."
+description = "Executable standards, SDK, reference science, and benchmarks for semantic geoscience Worlds."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
@@ -45,6 +45,9 @@ geoworld-open = "geoworld_open.cli:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"geoworld_open.benchmarks.data" = ["*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

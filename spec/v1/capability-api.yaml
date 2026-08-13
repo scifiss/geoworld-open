@@ -1,0 +1,52 @@
+openapi: 3.1.0
+info:
+  title: GeoWorld Protected Capability API
+  version: 1.0.0
+  description: Optional HTTP boundary between the public GeoWorld SDK and a protected capability implementation.
+paths:
+  /api/v1/capabilities/{capability_id}/execute:
+    post:
+      summary: Execute an available capability using validated JSON inputs.
+      parameters:
+        - in: path
+          name: capability_id
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CapabilityRequest'}
+      responses:
+        '200':
+          description: Successful, unavailable, or failed structured result.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CapabilityResponse'}
+        '404': {description: Capability is not provided by this service.}
+        '503': {description: Capability service is temporarily unavailable.}
+components:
+  schemas:
+    CapabilityRequest:
+      type: object
+      additionalProperties: false
+      required: [schema_version, request_id, capability_id, capability_version, inputs]
+      properties:
+        schema_version: {const: '1.0'}
+        request_id: {type: string}
+        capability_id: {type: string}
+        capability_version: {type: string}
+        inputs: {type: object}
+        parameters: {type: object}
+    CapabilityResponse:
+      type: object
+      additionalProperties: false
+      required: [schema_version, request_id, status, outputs]
+      properties:
+        schema_version: {const: '1.0'}
+        request_id: {type: string}
+        status: {enum: [succeeded, unavailable, failed]}
+        outputs: {type: object}
+        artifact_manifest_url: {type: [string, 'null']}
+        error_category: {type: [string, 'null']}
+        message: {type: [string, 'null']}
