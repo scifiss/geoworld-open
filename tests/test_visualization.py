@@ -18,6 +18,11 @@ from geoworld_open.domains.geoscience.flagship.figures import (
     _intersecting_fault_mask,
     save_flagship_public_figure,
 )
+from geoworld_open.domains.geoscience.flagship.diagnostics import (
+    save_flagship_diagnostic,
+)
+from geoworld_open.domains.geoscience.structural import run_structural_world
+from geoworld_open.specs import load_geospec
 from geoworld_open.viz import (
     MISSING_COLOR,
     PRESETS,
@@ -32,10 +37,12 @@ from geoworld_open.viz import (
     shared_limits,
 )
 from geoworld_open.workflow import run_workflow
+from geoworld_open.world_diagnostics import save_structural_world_diagnostic
 
 
 ROOT = Path(__file__).resolve().parents[1]
 FLAGSHIP = ROOT / "examples" / "scenarios" / "flagship_faulted_reservoir.yaml"
+STRUCTURAL = ROOT / "examples" / "scenarios" / "structural_multifault.yaml"
 
 
 def test_summary_api_is_backward_compatible_bounded_and_discoverable(
@@ -270,3 +277,130 @@ def test_summary_and_flagship_figures_are_headless_and_immutable(
     np.testing.assert_array_equal(
         flagship_result.perturbed_dataset["pressure"], snapshots["perturbed"]
     )
+
+
+def test_flagship_diagnostic_uses_semantic_styles_explicit_ve_and_is_immutable(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import geoworld_open.domains.geoscience.flagship.diagnostics as diagnostic_module
+
+    result = run_flagship_world(load_flagship_spec(FLAGSHIP))
+    snapshots = {
+        "facies": np.asarray(result.structural_dataset["facies"]).copy(),
+        "porosity": np.asarray(result.structural_dataset["porosity"]).copy(),
+        "baseline": np.asarray(result.baseline_dataset["pressure"]).copy(),
+        "perturbed": np.asarray(result.perturbed_dataset["pressure"]).copy(),
+        "delta": np.asarray(result.perturbed_dataset["pressure_perturbation"]).copy(),
+        "temperature": np.asarray(result.baseline_dataset["temperature"]).copy(),
+    }
+    original = diagnostic_module.plot_spatial_field
+    rendered = []
+
+    def recording_plot(*args, **kwargs):
+        spatial = original(*args, **kwargs)
+        rendered.append((kwargs, spatial))
+        return spatial
+
+    monkeypatch.setattr(diagnostic_module, "plot_spatial_field", recording_plot)
+    output = save_flagship_diagnostic(result, tmp_path / "flagship.png")
+
+    assert output.is_file()
+    assert [item[0]["quantity"] for item in rendered] == [
+        "facies",
+        "porosity",
+        "pressure",
+        "positive_perturbation",
+        "pressure",
+        "temperature",
+    ]
+    assert {item[0]["vertical_exaggeration"] for item in rendered} == {2.0}
+    assert {item[1].image.axes.get_aspect() for item in rendered} == {2.0}
+    assert isinstance(rendered[0][1].image.norm, BoundaryNorm)
+    assert rendered[3][1].limits[0] == 0.0
+    assert rendered[3][1].limits[1] > 0.0
+    assert rendered[2][1].limits == rendered[4][1].limits
+
+    rendered.clear()
+    save_flagship_diagnostic(
+        result,
+        tmp_path / "flagship-physical.png",
+        vertical_exaggeration=1.0,
+    )
+    assert {item[1].image.axes.get_aspect() for item in rendered} == {1.0}
+    assert all(not item[1].image.axes.texts for item in rendered)
+    for key, before in snapshots.items():
+        current = {
+            "facies": result.structural_dataset["facies"],
+            "porosity": result.structural_dataset["porosity"],
+            "baseline": result.baseline_dataset["pressure"],
+            "perturbed": result.perturbed_dataset["pressure"],
+            "delta": result.perturbed_dataset["pressure_perturbation"],
+            "temperature": result.baseline_dataset["temperature"],
+        }[key]
+        np.testing.assert_array_equal(current, before)
+
+
+def test_structural_diagnostic_uses_semantic_styles_all_faults_and_is_immutable(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import geoworld_open.world_diagnostics as diagnostic_module
+
+    result = run_structural_world(load_geospec(STRUCTURAL))
+    snapshots = {
+        name: np.asarray(result.dataset[name]).copy()
+        for name in (
+            "facies",
+            "porosity",
+            "reservoir_selection",
+            "structural_displacement_m",
+            "fault_selection",
+        )
+    }
+    original_plot = diagnostic_module.plot_spatial_field
+    original_boundary = diagnostic_module.draw_region_boundary
+    rendered = []
+    fault_masks = []
+
+    def recording_plot(*args, **kwargs):
+        spatial = original_plot(*args, **kwargs)
+        rendered.append((kwargs, spatial))
+        return spatial
+
+    def recording_boundary(*args, **kwargs):
+        fault_masks.append(np.asarray(args[3]).copy())
+        return original_boundary(*args, **kwargs)
+
+    monkeypatch.setattr(diagnostic_module, "plot_spatial_field", recording_plot)
+    monkeypatch.setattr(diagnostic_module, "draw_region_boundary", recording_boundary)
+    output = save_structural_world_diagnostic(result, tmp_path / "structural.png")
+
+    assert output.is_file()
+    assert [item[0]["quantity"] for item in rendered] == [
+        "facies",
+        "porosity",
+        "binary_mask",
+        "signed_displacement",
+    ]
+    assert {item[0]["vertical_exaggeration"] for item in rendered} == {2.0}
+    assert {item[1].image.axes.get_aspect() for item in rendered} == {2.0}
+    assert isinstance(rendered[0][1].image.norm, BoundaryNorm)
+    assert isinstance(rendered[2][1].image.norm, BoundaryNorm)
+    assert isinstance(rendered[3][1].image.norm, TwoSlopeNorm)
+    assert rendered[3][1].limits[0] == -rendered[3][1].limits[1]
+    fault_count = result.dataset.sizes["fault"]
+    assert len(fault_masks) == len(rendered) * fault_count
+
+    rendered.clear()
+    fault_masks.clear()
+    save_structural_world_diagnostic(
+        result,
+        tmp_path / "structural-physical.png",
+        vertical_exaggeration=1.0,
+    )
+    assert {item[1].image.axes.get_aspect() for item in rendered} == {1.0}
+    assert all(not item[1].image.axes.texts for item in rendered)
+    assert len(fault_masks) == len(rendered) * fault_count
+    for name, before in snapshots.items():
+        np.testing.assert_array_equal(result.dataset[name], before)

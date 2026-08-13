@@ -1,5 +1,16 @@
 # World-Model Foundations
 
+> **Current status:** This document records the cross-domain reasoning that led
+> to the World Kernel. Some sections preserve early candidate architectures for
+> design history. The implemented minimal kernel is the frozen eight-concept
+> model: **World, Entity, Relation, Representation, Field, WorldState,
+> Observation, and Provenance**. Concepts such as Component, Process, Action,
+> Agent, Goal, Constraint, Uncertainty, ReferenceFrame, and Scale are layered or
+> adjacent concepts, not members of the minimal kernel. See the authoritative
+> [World Kernel architecture](world-kernel-architecture.md),
+> [implemented contracts](world-kernel-contracts.md), and
+> [Gate-1 decision record](world-kernel-gate-1.md).
+
 ## Why this document exists
 
 GeoWorld should not be defined by one workflow such as AVO, CO2 monitoring, seismic modeling, petrophysics, reservoir simulation, geomechanics, or geochemistry. Those are domain capabilities that operate on a deeper representation of a physical world.
@@ -58,11 +69,11 @@ The architecture should not force a choice between them.
 
 ---
 
-## Universal World Kernel
+## Historical candidate kernel explored before Gate 1
 
 The world itself should be conceptually smaller than any domain built on top of it.
 
-A useful initial kernel is:
+Before Gate 1, the design exploration considered this broader candidate:
 
 ```text
 World
@@ -91,7 +102,24 @@ ReferenceFrame
 Scale
 ```
 
-This is a **conceptual classification tree**. The instantiated world is a graph, because real entities have many-to-many relationships.
+This was a **conceptual classification tree**, not the implemented kernel. Its
+cross-domain reasoning is retained below as design history. Gate 1 subsequently
+froze the smaller implemented kernel:
+
+```text
+World
+├── Entity
+├── Relation
+├── Representation
+├── Field
+├── WorldState
+├── Observation
+└── Provenance
+```
+
+The instantiated World remains a graph because real entities have many-to-many
+relationships. The other explored concepts below belong in supporting contracts,
+domain layers, execution systems, or future applications when justified.
 
 ---
 
@@ -112,7 +140,7 @@ Identity persists even when geometry, state, observations, or representations ch
 
 ---
 
-## Component
+## Component (historical layered concept)
 
 Use composition rather than a deep inheritance tree.
 
@@ -176,7 +204,7 @@ Domain-specific relation types and validity rules belong to domain packages, not
 
 ---
 
-## State
+## WorldState
 
 A **WorldState** describes the condition of the world at a particular time or valid interval.
 
@@ -257,7 +285,7 @@ Representation should therefore be explicit and replaceable.
 
 ---
 
-## Process
+## Process (historical layered concept)
 
 A **Process** describes dynamics or physics that evolve state.
 
@@ -272,11 +300,12 @@ Examples:
 
 A process may be implemented by an analytical equation, PDE solver, numerical simulator, surrogate model, learned world model, or external service.
 
-The world kernel should care about the contract and semantics, not the implementation technique.
+An execution or domain layer should care about the contract and semantics, not
+the implementation technique. `Process` is not one of the frozen kernel concepts.
 
 ---
 
-## Action
+## Action (historical layered concept)
 
 An **Action** is an intervention that may alter world state.
 
@@ -299,7 +328,7 @@ into:
 
 ---
 
-## Agent and Goal
+## Agent and Goal (historical adjacent concepts)
 
 An agent should sit on top of the world, not define the world.
 
@@ -332,7 +361,7 @@ Or as a closed loop:
 ```text
                 ┌──────────── WORLD ────────────┐
                 │                               │
-             State ── Process/Action ──> New State
+        WorldState ── Process/Action ──> New WorldState
                 │                               │
                 └──────── Observation ──────────┘
                               │
@@ -417,8 +446,8 @@ The architecture itself is valuable evidence of system-design skill and may be p
 - Relation concept
 - Observation concept
 - Representation concept
-- Process and Action interfaces
-- Agent/Goal interfaces
+- optional Process and Action interfaces outside the minimal kernel
+- optional Agent/Goal interfaces outside the minimal kernel
 - a small reference set of geoscience entities such as Formation, Fault, FluidMaterial, and Well
 - standard published physics operators
 - transparent examples and reproducibility

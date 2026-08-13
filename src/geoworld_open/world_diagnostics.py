@@ -4,97 +4,112 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import matplotlib
-
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.colors import BoundaryNorm, ListedColormap
 
 from geoworld_open.domains.geoscience.structural import StructuralWorldResult
+from geoworld_open.viz.export import save_figure
+from geoworld_open.viz.overlays import draw_region_boundary
+from geoworld_open.viz.spatial import attach_colorbar, plot_spatial_field
+from geoworld_open.viz.style import FigurePreset, get_preset, style_context
 
 
 def save_structural_world_diagnostic(
     result: StructuralWorldResult,
     path: str | Path,
-) -> None:
-    """Plot four structural outputs solely as a scientific correctness aid."""
+    *,
+    preset: str | FigurePreset = "compact",
+    vertical_exaggeration: float = 2.0,
+) -> Path:
+    """Plot structural outputs without recomputing or mutating scientific fields."""
+    selected = get_preset(preset)
     dataset = result.dataset
-    x = np.asarray(dataset.coords["x"])
-    depth = np.asarray(dataset.coords["depth"])
-    grid = result.structural_input.grid
-    extent = [
-        x[0] - grid.dx_m / 2,
-        x[-1] + grid.dx_m / 2,
-        depth[-1] + grid.ddepth_m / 2,
-        depth[0] - grid.ddepth_m / 2,
-    ]
-    figure, axes = plt.subplots(1, 4, figsize=(13, 3.5), constrained_layout=True)
-
-    facies_values = sorted(int(value) for value in np.unique(dataset["facies"]))
-    colors = plt.get_cmap("tab20")(np.linspace(0.05, 0.95, max(len(facies_values), 2)))
-    facies_cmap = ListedColormap(colors[: len(facies_values)])
-    bounds = [facies_values[0] - 0.5, *[value + 0.5 for value in facies_values]]
-    facies_image = axes[0].imshow(
-        dataset["facies"],
-        origin="upper",
-        extent=extent,
-        aspect="auto",
-        cmap=facies_cmap,
-        norm=BoundaryNorm(bounds, facies_cmap.N),
-    )
-    figure.colorbar(facies_image, ax=axes[0], ticks=facies_values, fraction=0.046)
-
-    porosity_image = axes[1].imshow(
-        dataset["porosity"],
-        origin="upper",
-        extent=extent,
-        aspect="auto",
-        cmap="viridis",
-        vmin=0.0,
-        vmax=max(0.01, float(dataset["porosity"].max())),
-    )
-    figure.colorbar(porosity_image, ax=axes[1], fraction=0.046, label="fraction")
-
-    reservoir_image = axes[2].imshow(
-        dataset["reservoir_selection"],
-        origin="upper",
-        extent=extent,
-        aspect="auto",
-        cmap=ListedColormap(["#f4f4f4", "#1f77b4"]),
-        vmin=0,
-        vmax=1,
-    )
-    figure.colorbar(
-        reservoir_image, ax=axes[2], fraction=0.046, ticks=[0, 1], label="selection"
+    x = np.asarray(dataset.coords["x"].values, dtype=float)
+    depth = np.asarray(dataset.coords["depth"].values, dtype=float)
+    facies_labels = {item.code: item.label for item in result.structural_input.facies}
+    panels = (
+        (
+            np.asarray(dataset["facies"].values),
+            "A. Categorical facies",
+            "facies",
+            None,
+            facies_labels,
+        ),
+        (
+            np.asarray(dataset["porosity"].values),
+            "B. Explicit porosity",
+            "porosity",
+            "fraction",
+            None,
+        ),
+        (
+            np.asarray(dataset["reservoir_selection"].values),
+            "C. Reservoir selection",
+            "binary_mask",
+            None,
+            {0: "Outside", 1: "Reservoir"},
+        ),
+        (
+            np.asarray(dataset["structural_displacement_m"].values),
+            "D. Signed displacement",
+            "signed_displacement",
+            "m",
+            None,
+        ),
     )
 
-    displacement = dataset["structural_displacement_m"]
-    limit = max(1.0, float(np.max(np.abs(displacement))))
-    displacement_image = axes[3].imshow(
-        displacement,
-        origin="upper",
-        extent=extent,
-        aspect="auto",
-        cmap="RdBu_r",
-        vmin=-limit,
-        vmax=limit,
-    )
-    figure.colorbar(displacement_image, ax=axes[3], fraction=0.046, label="m")
+    with style_context(selected):
+        figure, axes = plt.subplots(
+            1,
+            4,
+            figsize=selected.figure_size(1, 4),
+            constrained_layout=True,
+        )
+        for axis, (values, title, quantity, unit, labels) in zip(axes, panels):
+            spatial = plot_spatial_field(
+                axis,
+                values,
+                x=x,
+                depth=depth,
+                quantity=quantity,
+                title=title,
+                unit=unit,
+                category_labels=labels,
+                vertical_exaggeration=vertical_exaggeration,
+            )
+            if labels:
+                ticks = sorted(labels)
+                colorbar = attach_colorbar(
+                    figure,
+                    spatial,
+                    axis,
+                    ticks=ticks,
+                )
+                colorbar.ax.set_yticklabels([labels[value] for value in ticks])
+            else:
+                attach_colorbar(figure, spatial, axis)
 
-    if dataset.sizes.get("fault", 0):
-        combined_fault = dataset["fault_selection"].any(dim="fault")
-        for axis in axes:
-            axis.contour(x, depth, combined_fault, levels=[0.5], colors="#202020", linewidths=0.65)
+            fault_values = (
+                dataset.coords["fault"].values if "fault" in dataset.coords else ()
+            )
+            for fault_id in fault_values:
+                draw_region_boundary(
+                    axis,
+                    x,
+                    depth,
+                    np.asarray(
+                        dataset["fault_selection"].sel(fault=fault_id).values,
+                        dtype=bool,
+                    ),
+                    color="#202020",
+                    label=str(fault_id) if axis is axes[0] else None,
+                )
 
-    for axis, title in zip(
-        axes,
-        ("Categorical facies", "Explicit porosity", "Reservoir selection", "Displacement"),
-    ):
-        axis.set_title(title, fontsize=9)
-        axis.set_xlabel("x (m)")
-        axis.set_ylabel("depth (m)")
-        axis.tick_params(labelsize=7)
-    figure.suptitle(f"Structural World diagnostic: {result.structural_input.name}")
-    figure.savefig(path, dpi=160, bbox_inches="tight")
-    plt.close(figure)
+        if dataset.sizes.get("fault", 0):
+            axes[0].legend(loc="lower left", fontsize=selected.tick_size - 0.5)
+        figure.suptitle(
+            f"Structural World correctness diagnostic: {result.structural_input.name}",
+            fontsize=selected.title_size,
+            fontweight="bold",
+        )
+        return save_figure(figure, path, preset=selected)
