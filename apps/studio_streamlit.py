@@ -93,15 +93,19 @@ def render_auth() -> str | None:
     st.info("Sign in to use the official GeoWorld backend. Credentials and user data are not stored in geoworld-open.")
     mode = st.radio("Account", ["Login", "Register"], horizontal=True)
     email = st.text_input("Email", autocomplete="username")
-    password = st.text_input(
+    credential_input = st.text_input(
         "Password",
         type="password",
         autocomplete="current-password" if mode == "Login" else "new-password",
     )
-    if st.button(mode, type="primary", disabled=not email.strip() or not password):
+    if st.button(mode, type="primary", disabled=not email.strip() or not credential_input):
         try:
             with st.spinner("Connecting to GeoWorld..."):
-                auth = client().login(email.strip(), password) if mode == "Login" else client().register(email.strip(), password)
+                auth = (
+                    client().login(email.strip(), credential_input)
+                    if mode == "Login"
+                    else client().register(email.strip(), credential_input)
+                )
             st.session_state["access_token"] = auth.access_token
             st.session_state["user_email"] = auth.user.email
             st.rerun()
