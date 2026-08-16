@@ -120,6 +120,13 @@ class GeoWorldBackendClient:
             {"prompt": prompt, "geospec": geospec},
         )
 
+    def preview_intent(self, prompt: str, *, has_csv: bool = False) -> dict[str, object]:
+        return self._json_request(
+            "POST",
+            "/intent/preview",
+            {"prompt": prompt, "has_csv": has_csv},
+        )
+
     def submit_job(self, request: JobCreateRequest) -> JobCreateResponse:
         payload = self._json_request("POST", "/jobs", request.model_dump(mode="json"))
         return JobCreateResponse.model_validate(payload)

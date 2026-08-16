@@ -60,6 +60,14 @@ def test_authenticated_build_job_round_trip() -> None:
                         "reason": "manual build",
                         "answer": "done",
                         "assumptions": ["synthetic"],
+                        "interpretation_mode": "llm_semantic_parser",
+                        "requested_outputs": ["vp", "impedance"],
+                        "produced_outputs": ["vp", "impedance"],
+                        "output_coverage": {"vp": True, "impedance": True},
+                        "provenance_summary": {
+                            "trace_id": "trace-1",
+                            "capabilities": ["semantic_model_parser", "synthetic_avo_runner"],
+                        },
                         "artifacts": [
                             {
                                 "name": "summary.png",
@@ -80,13 +88,57 @@ def test_authenticated_build_job_round_trip() -> None:
         transport=transport,
     )
 
-    created = client.submit_job(JobCreateRequest(prompt="build model", mode_hint="build_model"))
+    created = client.submit_job(
+        JobCreateRequest(
+            prompt="build model",
+            mode_hint="build_model",
+            geospec={"schema_version": "2.0"},
+            interpretation_mode="deterministic_fallback",
+            interpretation_degraded=True,
+            degraded_fallback_confirmed=True,
+        )
+    )
     completed = client.get_job(created.job_id)
 
     assert completed.status == "succeeded"
     assert completed.result is not None
     assert completed.result.artifacts[0].name == "summary.png"
+    assert completed.result.interpretation_mode == "llm_semantic_parser"
+    assert completed.result.output_coverage == {"vp": True, "impedance": True}
     assert transport.calls[0][2]["Authorization"] == "Bearer secret-token"
+    submitted = json.loads(transport.calls[0][3].decode("utf-8"))
+    assert submitted["interpretation_mode"] == "deterministic_fallback"
+    assert submitted["interpretation_degraded"] is True
+    assert submitted["degraded_fallback_confirmed"] is True
+
+
+def test_intent_preview_uses_public_http_contract() -> None:
+    transport = FakeTransport(
+        [
+            (
+                200,
+                {
+                    "intent": "build_model",
+                    "label": "Build model",
+                    "reason": "The request asks for a model.",
+                    "confidence": "high",
+                    "needs_confirmation": False,
+                },
+            )
+        ]
+    )
+    client = GeoWorldBackendClient(
+        "https://example.test",
+        token="token",
+        transport=transport,
+    )
+
+    preview = client.preview_intent("Build shale and sand.")
+
+    assert preview["intent"] == "build_model"
+    assert transport.calls[0][0] == "POST"
+    assert transport.calls[0][1].endswith("/intent/preview")
+    assert json.loads(transport.calls[0][3].decode("utf-8"))["prompt"] == "Build shale and sand."
 
 
 def test_backend_errors_are_sanitized() -> None:

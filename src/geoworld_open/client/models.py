@@ -31,6 +31,9 @@ class JobCreateRequest(BaseModel):
     geospec: dict[str, Any] | None = None
     csv_name: str | None = None
     csv_content: str | None = None
+    interpretation_mode: str | None = None
+    interpretation_degraded: bool = False
+    degraded_fallback_confirmed: bool = False
 
 
 class JobCreateResponse(BaseModel):
@@ -49,6 +52,12 @@ class JobResult(BaseModel):
     layers: list[dict[str, Any]] = Field(default_factory=list)
     geospec: dict[str, Any] | None = None
     artifacts: list[ArtifactInfo] = Field(default_factory=list)
+    interpretation_mode: str | None = None
+    interpretation_degraded: bool = False
+    requested_outputs: list[str] = Field(default_factory=list)
+    produced_outputs: list[str] = Field(default_factory=list)
+    output_coverage: dict[str, bool] = Field(default_factory=dict)
+    provenance_summary: dict[str, Any] = Field(default_factory=dict)
 
 
 class JobStatusResponse(BaseModel):
