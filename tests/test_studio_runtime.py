@@ -1,12 +1,24 @@
 from __future__ import annotations
 
+import base64
+from pathlib import Path
+
+import pytest
+
 from geoworld_open.client.models import ArtifactInfo
 from geoworld_open.studio_runtime import (
+    LAS_INVENTORY_NAME,
+    artifact_named,
+    decode_json_object,
+    encode_las_upload,
     health_diagnostic,
     output_coverage_rows,
     provenance_lines,
     sort_figure_artifacts,
 )
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_primary_summary_precedes_flagship_diagnostic_and_avo_figures() -> None:
@@ -76,3 +88,43 @@ def test_provenance_summary_is_concise_and_trace_derived() -> None:
         "Artifacts recorded: 17",
         "Manifest: manifest.json",
     ]
+
+
+def test_las_upload_encoding_is_content_preserving_and_filename_safe() -> None:
+    upload = encode_las_upload("../private/path/WELL.LAS", b"~Version\nVERS. 2.0")
+
+    assert upload.filename == "WELL.LAS"
+    assert upload.size_bytes == 18
+    assert base64.b64decode(upload.content_base64) == b"~Version\nVERS. 2.0"
+
+    with pytest.raises(ValueError, match=".las filename"):
+        encode_las_upload("well.txt", b"content")
+    with pytest.raises(ValueError, match="must not be empty"):
+        encode_las_upload("well.las", b"")
+
+
+def test_las_summary_artifacts_are_found_and_safely_decoded() -> None:
+    artifacts = [
+        ArtifactInfo(
+            name=f"run/results/{LAS_INVENTORY_NAME}",
+            kind="json",
+            media_type="application/json",
+        )
+    ]
+
+    found = artifact_named(artifacts, LAS_INVENTORY_NAME)
+
+    assert found is artifacts[0]
+    assert decode_json_object(b'{"wells": [{"well_id": "ALPHA-1"}]}')["wells"]
+    with pytest.raises(ValueError, match="JSON must be an object"):
+        decode_json_object(b"[]")
+
+
+def test_public_las_samples_are_synthetic_and_available_to_studio() -> None:
+    alpha = ROOT / "examples" / "las" / "well_alpha_m.las"
+    beta = ROOT / "examples" / "las" / "well_beta_ft_decreasing.las"
+
+    assert "WELL.           ALPHA-1" in alpha.read_text(encoding="utf-8")
+    assert "WELL.             BETA 2" in beta.read_text(encoding="utf-8")
+    assert "STRT.M" in alpha.read_text(encoding="utf-8")
+    assert "STRT.FT" in beta.read_text(encoding="utf-8")

@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import base64
+import json
 from pathlib import PurePosixPath
 from typing import Any, Iterable, Mapping, TypeVar
 
+from geoworld_open.client.models import ArtifactInfo, UploadedLASFile
+
 
 ArtifactT = TypeVar("ArtifactT")
+
+LAS_INVENTORY_NAME = "las_curve_inventory.json"
+LAS_QC_NAME = "las_qc_summary.json"
+LAS_OBSERVATION_NAME = "las_observation_summary.json"
 
 
 def figure_priority(name: str) -> tuple[int, str]:
@@ -29,6 +37,49 @@ def figure_priority(name: str) -> tuple[int, str]:
 
 def sort_figure_artifacts(artifacts: Iterable[ArtifactT]) -> list[ArtifactT]:
     return sorted(artifacts, key=lambda item: figure_priority(str(getattr(item, "name"))))
+
+
+def encode_las_upload(filename: str, content: bytes) -> UploadedLASFile:
+    """Encode an upload for JSON transport without inspecting scientific contents."""
+
+    safe_name = PurePosixPath(str(filename).replace("\\", "/")).name.strip()
+    if not safe_name or not safe_name.lower().endswith(".las"):
+        raise ValueError("LAS uploads must use a .las filename")
+    if not content:
+        raise ValueError("LAS uploads must not be empty")
+    return UploadedLASFile(
+        filename=safe_name,
+        content_base64=base64.b64encode(content).decode("ascii"),
+        size_bytes=len(content),
+    )
+
+
+def artifact_named(
+    artifacts: Iterable[ArtifactInfo],
+    basename: str,
+) -> ArtifactInfo | None:
+    """Find an artifact by safe POSIX basename regardless of its run subdirectory."""
+
+    return next(
+        (
+            artifact
+            for artifact in artifacts
+            if PurePosixPath(artifact.name).name == basename
+        ),
+        None,
+    )
+
+
+def decode_json_object(payload: bytes) -> dict[str, Any]:
+    """Decode one bounded presentation artifact and require a JSON object."""
+
+    try:
+        decoded = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("artifact is not valid UTF-8 JSON") from exc
+    if not isinstance(decoded, dict):
+        raise ValueError("artifact JSON must be an object")
+    return decoded
 
 
 def output_coverage_rows(

@@ -19,6 +19,7 @@ GeoWorld Open runs independently. Protected GeoWorld capabilities may also imple
 
 ## What you can do
 
+- use the public GeoWorld Studio client for authenticated Ask/Build and LAS Quicklook workflows;
 - validate GeoSpec and the eight-concept World model;
 - register and execute typed scientific capabilities;
 - run five reproducible geoscience benchmarks;
@@ -26,6 +27,12 @@ GeoWorld Open runs independently. Protected GeoWorld capabilities may also imple
 - test a third-party implementation for GeoWorld conformance;
 - construct renderer-neutral 2D, 3D, and 4D requests;
 - optionally call an official protected capability over HTTP.
+
+GeoWorld Studio keeps presentation and portable HTTP contracts public while protected
+reasoning, knowledge, production science, persistence, and user data remain behind the
+official service. Its sidebar reports the active capability-registry snapshot, and each
+submitted job exposes a content-free correlation reference for diagnostics. Two synthetic
+[LAS samples](examples/las/) are included for the measured-depth Quicklook workflow.
 
 ## Architecture
 

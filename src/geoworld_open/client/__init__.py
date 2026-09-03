@@ -7,21 +7,29 @@ from geoworld_open.client.backend import GeoWorldBackendClient, GeoWorldClientEr
 from geoworld_open.client.models import (
     ArtifactInfo,
     AuthResponse,
+    CapabilityCatalog,
+    CapabilityDescription,
     JobCreateRequest,
     JobCreateResponse,
     JobResult,
     JobStatusResponse,
+    LASQuicklookSettings,
+    UploadedLASFile,
     UserProfile,
 )
 
 __all__ = [
     "ArtifactInfo",
     "AuthResponse",
+    "CapabilityCatalog",
+    "CapabilityDescription",
     "GeoWorldBackendClient",
     "GeoWorldClientError",
     "JobCreateRequest",
     "JobCreateResponse",
     "JobResult",
     "JobStatusResponse",
+    "LASQuicklookSettings",
+    "UploadedLASFile",
     "UserProfile",
 ]

@@ -3,8 +3,15 @@ from __future__ import annotations
 import json
 
 import pytest
+from pydantic import ValidationError
 
-from geoworld_open.client import GeoWorldBackendClient, GeoWorldClientError, JobCreateRequest
+from geoworld_open.client import (
+    GeoWorldBackendClient,
+    GeoWorldClientError,
+    JobCreateRequest,
+    LASQuicklookSettings,
+    UploadedLASFile,
+)
 
 
 class FakeTransport:
@@ -139,6 +146,117 @@ def test_intent_preview_uses_public_http_contract() -> None:
     assert transport.calls[0][0] == "POST"
     assert transport.calls[0][1].endswith("/intent/preview")
     assert json.loads(transport.calls[0][3].decode("utf-8"))["prompt"] == "Build shale and sand."
+
+
+def test_las_quicklook_job_uses_portable_contract_and_keeps_correlation_id() -> None:
+    transport = FakeTransport(
+        [
+            (
+                200,
+                {
+                    "job_id": "job-las-1",
+                    "correlation_id": "request-0123456789abcdef0123456789abcdef",
+                    "status": "queued",
+                    "progress": "queued",
+                },
+            )
+        ]
+    )
+    client = GeoWorldBackendClient(
+        "https://example.test",
+        token="token",
+        transport=transport,
+    )
+
+    created = client.submit_job(
+        JobCreateRequest(
+            prompt="LAS Quicklook v1 measured-depth job",
+            mode_hint="las_quicklook",
+            las_files=[
+                UploadedLASFile(
+                    filename="well.las",
+                    content_base64="fkFCQw==",
+                    size_bytes=4,
+                )
+            ],
+            las_quicklook=LASQuicklookSettings(
+                selected_curves=["GR", "RHOB"],
+                depth_range_mode="union",
+                target_depth_unit="m",
+            ),
+        )
+    )
+
+    assert created.correlation_id == "request-0123456789abcdef0123456789abcdef"
+    submitted = json.loads(transport.calls[0][3].decode("utf-8"))
+    assert submitted["mode_hint"] == "las_quicklook"
+    assert submitted["las_files"][0]["filename"] == "well.las"
+    assert submitted["las_quicklook"]["selected_curves"] == ["GR", "RHOB"]
+    assert submitted["las_quicklook"]["target_depth_unit"] == "m"
+
+
+def test_authenticated_capability_catalog_is_typed() -> None:
+    transport = FakeTransport(
+        [
+            (
+                200,
+                {
+                    "schema_version": "1.0",
+                    "catalog_version": "sha256:catalog",
+                    "capabilities": [
+                        {
+                            "name": "acoustic_impedance",
+                            "version": "1.0",
+                            "category": "scientific_function",
+                            "availability": "active",
+                            "input_schema": {"type": "object"},
+                            "output_schema": {"type": "object"},
+                            "required_variables": ["vp", "density"],
+                            "produced_variables": ["impedance"],
+                            "supported_dimensions": ["1d"],
+                            "assumptions": ["co-located samples"],
+                            "limitations": ["no unit conversion"],
+                        }
+                    ],
+                },
+            )
+        ]
+    )
+    client = GeoWorldBackendClient(
+        "https://example.test",
+        token="token",
+        transport=transport,
+    )
+
+    catalog = client.get_capabilities()
+
+    assert catalog.catalog_version == "sha256:catalog"
+    assert catalog.capabilities[0].name == "acoustic_impedance"
+    assert catalog.capabilities[0].produced_variables == ["impedance"]
+    method, url, headers, _, _ = transport.calls[0]
+    assert method == "GET"
+    assert url.endswith("/capabilities")
+    assert headers["Authorization"] == "Bearer token"
+
+
+def test_job_response_rejects_non_opaque_correlation_content() -> None:
+    transport = FakeTransport(
+        [
+            (
+                200,
+                {
+                    "job_id": "job-1",
+                    "correlation_id": "request-user@example.com",
+                    "status": "queued",
+                    "progress": "queued",
+                },
+            )
+        ]
+    )
+    client = GeoWorldBackendClient("https://example.test", transport=transport)
+
+    with pytest.raises(ValidationError, match="correlation_id"):
+        client.submit_job(JobCreateRequest(prompt="build model"))
 
 
 def test_backend_errors_are_sanitized() -> None:

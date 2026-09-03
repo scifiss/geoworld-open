@@ -20,9 +20,20 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from geoworld_open.client import GeoWorldBackendClient, GeoWorldClientError, JobCreateRequest
+from geoworld_open.client import (
+    GeoWorldBackendClient,
+    GeoWorldClientError,
+    JobCreateRequest,
+    LASQuicklookSettings,
+)
 from geoworld_open.client.backend import backend_url_from_environment
 from geoworld_open.studio_runtime import (
+    LAS_INVENTORY_NAME,
+    LAS_OBSERVATION_NAME,
+    LAS_QC_NAME,
+    artifact_named,
+    decode_json_object,
+    encode_las_upload,
     health_diagnostic,
     output_coverage_rows,
     provenance_lines,
@@ -47,6 +58,8 @@ EXAMPLES = {
         "and assumptions."
     ),
 }
+
+LAS_SAMPLE_DIR = PROJECT_ROOT / "examples" / "las"
 
 
 def backend_url() -> str | None:
@@ -81,6 +94,9 @@ def clear_session() -> None:
         "fallback_confirmed",
         "last_job",
         "last_job_id",
+        "last_correlation_id",
+        "capability_catalog",
+        "active_workspace",
     ):
         st.session_state.pop(key, None)
 
@@ -140,7 +156,206 @@ def poll_job(api: GeoWorldBackendClient, job_id: str):
 def submit_and_wait(api: GeoWorldBackendClient, request: JobCreateRequest) -> None:
     created = api.submit_job(request)
     st.session_state["last_job_id"] = created.job_id
+    st.session_state["last_correlation_id"] = created.correlation_id
     st.session_state["last_job"] = poll_job(api, created.job_id)
+
+
+def comma_separated_values(value: str) -> list[str]:
+    return list(dict.fromkeys(item.strip() for item in value.split(",") if item.strip()))
+
+
+def load_json_artifact(
+    api: GeoWorldBackendClient,
+    job_id: str,
+    artifacts,
+    basename: str,
+) -> dict[str, object] | None:
+    artifact = artifact_named(artifacts, basename)
+    if artifact is None:
+        return None
+    return decode_json_object(api.get_artifact(job_id, artifact.name))
+
+
+def render_las_details(api: GeoWorldBackendClient, job_id: str, artifacts) -> None:
+    """Present bounded LAS summaries returned by the protected backend."""
+
+    try:
+        inventory = load_json_artifact(api, job_id, artifacts, LAS_INVENTORY_NAME)
+        qc = load_json_artifact(api, job_id, artifacts, LAS_QC_NAME)
+        observation = load_json_artifact(api, job_id, artifacts, LAS_OBSERVATION_NAME)
+    except (GeoWorldClientError, ValueError) as exc:
+        st.warning(f"LAS details are unavailable: {exc}")
+        return
+
+    st.subheader("LAS inventory")
+    wells = inventory.get("wells") if isinstance(inventory, dict) else None
+    if isinstance(wells, list) and wells:
+        rows = []
+        for well in wells:
+            if not isinstance(well, dict):
+                continue
+            depth = well.get("depth") if isinstance(well.get("depth"), dict) else {}
+            curves = well.get("curves") if isinstance(well.get("curves"), list) else []
+            rows.append(
+                {
+                    "Well": well.get("well_id") or well.get("well_name"),
+                    "Source": well.get("source_filename"),
+                    "MD unit": depth.get("converted_unit") or depth.get("unit_canonical"),
+                    "Samples": depth.get("sample_count"),
+                    "Curves": ", ".join(
+                        str(curve.get("original_mnemonic"))
+                        for curve in curves
+                        if isinstance(curve, dict) and curve.get("original_mnemonic")
+                    ),
+                }
+            )
+        st.dataframe(rows, width="stretch", hide_index=True)
+    else:
+        st.info("The run did not return a readable LAS well inventory.")
+
+    st.subheader("Quality control")
+    if isinstance(qc, dict):
+        metric_columns = st.columns(3)
+        metric_columns[0].metric("Parsed", qc.get("files_successfully_parsed", 0))
+        metric_columns[1].metric("Rejected", qc.get("files_rejected", 0))
+        metric_columns[2].metric("MD unit", qc.get("common_depth_unit", "—"))
+        warnings = qc.get("warnings")
+        if isinstance(warnings, list) and warnings:
+            with st.expander(f"QC warnings ({len(warnings)})"):
+                for warning in warnings:
+                    st.write(f"- {warning}")
+        with st.expander("QC methods and transformations"):
+            st.json(qc)
+    else:
+        st.info("The run did not return a readable LAS QC summary.")
+
+    st.subheader("Observation summary")
+    if isinstance(observation, dict):
+        st.json(observation)
+    else:
+        st.info("The run did not return a readable observation summary.")
+
+
+def render_las_workspace(api: GeoWorldBackendClient) -> None:
+    st.subheader("LAS Quicklook")
+    st.caption(
+        "Upload LAS files for deterministic measured-depth inventory, QC, and multiwell quicklook plots. "
+        "The protected backend performs all scientific parsing; no LLM is required."
+    )
+
+    sample_paths = [
+        LAS_SAMPLE_DIR / "well_alpha_m.las",
+        LAS_SAMPLE_DIR / "well_beta_ft_decreasing.las",
+    ]
+    available_samples = [path for path in sample_paths if path.is_file()]
+    if available_samples:
+        with st.expander("Download sample LAS files"):
+            columns = st.columns(len(available_samples))
+            for column, path in zip(columns, available_samples):
+                column.download_button(
+                    f"Download {path.name}",
+                    data=path.read_bytes(),
+                    file_name=path.name,
+                    mime="text/plain",
+                    key=f"sample-{path.name}",
+                    use_container_width=True,
+                )
+
+    uploaded = st.file_uploader(
+        "LAS files",
+        type=["las"],
+        accept_multiple_files=True,
+        help="Choose one or more CWLS LAS text files. Files are sent only when you run the workflow.",
+    )
+    if uploaded:
+        st.dataframe(
+            [
+                {"Filename": item.name, "Size (bytes)": len(item.getvalue())}
+                for item in uploaded
+            ],
+            width="stretch",
+            hide_index=True,
+        )
+
+    with st.expander("Quicklook controls", expanded=bool(uploaded)):
+        st.caption(
+            "Leave wells blank to include every parsed well. Curve names may be LAS mnemonics or supported aliases."
+        )
+        selection_columns = st.columns(2)
+        selected_wells_text = selection_columns[0].text_input(
+            "Wells (optional, comma separated)",
+            value="",
+        )
+        selected_curves_text = selection_columns[1].text_input(
+            "Curves (comma separated)",
+            value="GR, RHOB, NPHI, DT",
+        )
+        setting_columns = st.columns(3)
+        depth_mode = setting_columns[0].selectbox(
+            "Depth range",
+            ["intersection", "union", "custom"],
+        )
+        target_unit_label = setting_columns[1].selectbox(
+            "Target MD unit",
+            ["Native/common", "m", "ft"],
+        )
+        log_resistivity = setting_columns[2].checkbox("Log-scale resistivity", value=False)
+
+        custom_min = None
+        custom_max = None
+        custom_range_valid = True
+        if depth_mode == "custom":
+            custom_columns = st.columns(2)
+            custom_min = custom_columns[0].number_input("Custom MD minimum", value=0.0)
+            custom_max = custom_columns[1].number_input("Custom MD maximum", value=1000.0)
+            custom_range_valid = custom_max > custom_min
+            if not custom_range_valid:
+                st.warning("Custom MD maximum must be greater than the minimum.")
+
+        resample_enabled = st.checkbox(
+            "Create aligned_curves.csv by deterministic resampling",
+            value=False,
+        )
+        resample_interval = None
+        if resample_enabled:
+            resample_interval = st.number_input(
+                "Resample interval in the target MD unit",
+                min_value=0.001,
+                value=0.5,
+            )
+
+    if st.button(
+        "Run LAS Quicklook",
+        type="primary",
+        disabled=not uploaded or not custom_range_valid,
+    ):
+        try:
+            uploads = [encode_las_upload(item.name, item.getvalue()) for item in uploaded]
+            settings = LASQuicklookSettings(
+                selected_wells=comma_separated_values(selected_wells_text),
+                selected_curves=comma_separated_values(selected_curves_text),
+                depth_range_mode=depth_mode,
+                custom_depth_min=custom_min,
+                custom_depth_max=custom_max,
+                target_depth_unit=(
+                    None if target_unit_label == "Native/common" else target_unit_label
+                ),
+                resample_enabled=resample_enabled,
+                resample_interval=resample_interval,
+                log_resistivity=log_resistivity,
+            )
+            with st.spinner("GeoWorld is validating and plotting the LAS files..."):
+                submit_and_wait(
+                    api,
+                    JobCreateRequest(
+                        prompt="LAS Quicklook v1 measured-depth job",
+                        mode_hint="las_quicklook",
+                        las_files=uploads,
+                        las_quicklook=settings,
+                    ),
+                )
+        except (GeoWorldClientError, ValueError) as exc:
+            st.error(f"LAS Quicklook request failed: {exc}")
 
 
 def display_result(api: GeoWorldBackendClient) -> None:
@@ -156,11 +371,22 @@ def display_result(api: GeoWorldBackendClient) -> None:
         return
 
     result = job.result
+    correlation_id = st.session_state.get("last_correlation_id")
     images = sort_figure_artifacts(
         artifact for artifact in result.artifacts if artifact.kind == "image"
     )
 
     st.divider()
+    with st.expander("Job details"):
+        st.write(f"**Job:** `{job_id}`")
+        if correlation_id:
+            st.write(f"**Safe request reference:** `{correlation_id}`")
+            st.caption(
+                "Use this identifier to connect UI, API, job, trace, and evidence records. "
+                "It contains no prompt, email, or scientific data."
+            )
+        else:
+            st.caption("This job was created before request references were exposed to Studio.")
     overview, science, provenance, artifacts, advanced = st.tabs(
         ["Overview", "Model & Figures", "State / Provenance", "Artifacts", "Advanced"]
     )
@@ -204,6 +430,8 @@ def display_result(api: GeoWorldBackendClient) -> None:
         if result.storage:
             st.subheader("Scientific summary")
             st.json(result.storage)
+        if result.mode == "las_quicklook_v1" or result.intent == "las_quicklook":
+            render_las_details(api, job_id, result.artifacts)
 
     with provenance:
         summary_lines = provenance_lines(result.provenance_summary)
@@ -299,6 +527,20 @@ with st.sidebar:
             })
     except Exception:
         st.caption("LLM status unavailable")
+    try:
+        if "capability_catalog" not in st.session_state:
+            st.session_state["capability_catalog"] = api.get_capabilities()
+        capability_catalog = st.session_state["capability_catalog"]
+        with st.expander(
+            f"Available capabilities ({len(capability_catalog.capabilities)})"
+        ):
+            st.caption(f"Registry snapshot: {capability_catalog.catalog_version[:20]}…")
+            for capability in capability_catalog.capabilities:
+                st.write(f"**{capability.name}** · {capability.category} · v{capability.version}")
+                if capability.produced_variables:
+                    st.caption("Produces: " + ", ".join(capability.produced_variables))
+    except Exception:
+        st.caption("Capability catalog unavailable")
     if st.button("Log out"):
         clear_session()
         st.rerun()
@@ -307,6 +549,21 @@ st.title("🌍 GeoWorld Studio")
 st.caption(
     "Ask a geoscience question or describe a model. The public frontend sends validated requests to the protected GeoWorld backend."
 )
+
+workspace = st.radio(
+    "Workspace",
+    ["Ask or Build", "LAS Quicklook"],
+    horizontal=True,
+)
+if st.session_state.get("active_workspace") != workspace:
+    for key in ("last_job", "last_job_id", "last_correlation_id"):
+        st.session_state.pop(key, None)
+    st.session_state["active_workspace"] = workspace
+
+if workspace == "LAS Quicklook":
+    render_las_workspace(api)
+    display_result(api)
+    st.stop()
 
 cols = st.columns(len(EXAMPLES))
 for column, (label, example) in zip(cols, EXAMPLES.items()):

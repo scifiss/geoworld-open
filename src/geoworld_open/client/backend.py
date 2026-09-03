@@ -17,6 +17,7 @@ from urllib.request import Request, urlopen
 
 from geoworld_open.client.models import (
     AuthResponse,
+    CapabilityCatalog,
     JobCreateRequest,
     JobCreateResponse,
     JobStatusResponse,
@@ -107,6 +108,10 @@ class GeoWorldBackendClient:
 
     def get_llm_health(self) -> dict[str, object]:
         return self._json_request("GET", "/api/llm/health")
+
+    def get_capabilities(self) -> CapabilityCatalog:
+        payload = self._json_request("GET", "/capabilities")
+        return CapabilityCatalog.model_validate(payload)
 
     def preview_geospec(
         self,
