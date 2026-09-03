@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 from pathlib import PurePosixPath
 from typing import Any, Iterable, Mapping, TypeVar
@@ -52,6 +53,50 @@ def encode_las_upload(filename: str, content: bytes) -> UploadedLASFile:
         content_base64=base64.b64encode(content).decode("ascii"),
         size_bytes=len(content),
     )
+
+
+def las_form_signature(
+    files: Iterable[tuple[str, int]],
+    settings: object,
+) -> str:
+    """Identify one LAS form state without retaining uploaded file contents."""
+
+    settings_payload = (
+        settings.model_dump(mode="json")
+        if hasattr(settings, "model_dump")
+        else settings
+    )
+    payload = {
+        "files": [
+            {
+                "filename": PurePosixPath(name.replace("\\", "/")).name,
+                "size_bytes": size_bytes,
+            }
+            for name, size_bytes in files
+        ],
+        "settings": settings_payload,
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def friendly_job_error(error: str | None) -> str:
+    """Translate known workflow failures into an actionable user message."""
+
+    message = str(error or "").strip()
+    if "incompatible measured-depth units" in message:
+        return (
+            "These wells use different depth units. Choose metres or feet under "
+            "Display depth in, then run the quicklook again."
+        )
+    if "No selected LAS curves" in message or "selected curves has valid samples" in message:
+        return (
+            "GeoWorld could not find the requested curves in this file. Clear the Curves box "
+            "to select curves automatically, or enter mnemonics shown in the LAS file."
+        )
+    if "No valid LAS files" in message:
+        return "GeoWorld could not read a valid LAS file. Check the file format and try again."
+    return message or "GeoWorld could not complete this job. Please adjust the inputs and try again."
 
 
 def artifact_named(

@@ -34,7 +34,9 @@ from geoworld_open.studio_runtime import (
     artifact_named,
     decode_json_object,
     encode_las_upload,
+    friendly_job_error,
     health_diagnostic,
+    las_form_signature,
     output_coverage_rows,
     provenance_lines,
     sort_figure_artifacts,
@@ -97,6 +99,7 @@ def clear_session() -> None:
         "last_correlation_id",
         "capability_catalog",
         "active_workspace",
+        "las_form_signature",
     ):
         st.session_state.pop(key, None)
 
@@ -144,10 +147,15 @@ def poll_job(api: GeoWorldBackendClient, job_id: str):
     status = st.empty()
     for index in range(120):
         job = api.get_job(job_id)
-        status.info(f"{job.status}: {job.progress}")
+        status.info(job.progress)
         progress.progress(min(95, 5 + index % 90))
         if job.status in {"succeeded", "failed"}:
-            progress.progress(100)
+            if job.status == "succeeded":
+                progress.progress(100)
+                status.success("Analysis complete.")
+            else:
+                progress.empty()
+                status.empty()
             return job
         time.sleep(3)
     raise GeoWorldClientError("Timed out while waiting for GeoWorld job completion")
@@ -296,7 +304,7 @@ def render_las_workspace(api: GeoWorldBackendClient) -> None:
             ["intersection", "union", "custom"],
         )
         target_unit_label = setting_columns[1].selectbox(
-            "Target MD unit",
+            "Display depth in",
             ["Native/common", "m", "ft"],
         )
         log_resistivity = setting_columns[2].checkbox("Log-scale resistivity", value=False)
@@ -324,6 +332,28 @@ def render_las_workspace(api: GeoWorldBackendClient) -> None:
                 value=0.5,
             )
 
+    settings = LASQuicklookSettings(
+        selected_wells=comma_separated_values(selected_wells_text),
+        selected_curves=comma_separated_values(selected_curves_text),
+        depth_range_mode=depth_mode,
+        custom_depth_min=custom_min,
+        custom_depth_max=custom_max,
+        target_depth_unit=(
+            None if target_unit_label == "Native/common" else target_unit_label
+        ),
+        resample_enabled=resample_enabled,
+        resample_interval=resample_interval,
+        log_resistivity=log_resistivity,
+    )
+    signature = las_form_signature(
+        [(item.name, len(item.getvalue())) for item in uploaded or []],
+        settings,
+    )
+    if st.session_state.get("las_form_signature") != signature:
+        for key in ("last_job", "last_job_id", "last_correlation_id"):
+            st.session_state.pop(key, None)
+        st.session_state["las_form_signature"] = signature
+
     if st.button(
         "Run LAS Quicklook",
         type="primary",
@@ -331,19 +361,6 @@ def render_las_workspace(api: GeoWorldBackendClient) -> None:
     ):
         try:
             uploads = [encode_las_upload(item.name, item.getvalue()) for item in uploaded]
-            settings = LASQuicklookSettings(
-                selected_wells=comma_separated_values(selected_wells_text),
-                selected_curves=comma_separated_values(selected_curves_text),
-                depth_range_mode=depth_mode,
-                custom_depth_min=custom_min,
-                custom_depth_max=custom_max,
-                target_depth_unit=(
-                    None if target_unit_label == "Native/common" else target_unit_label
-                ),
-                resample_enabled=resample_enabled,
-                resample_interval=resample_interval,
-                log_resistivity=log_resistivity,
-            )
             with st.spinner("GeoWorld is validating and plotting the LAS files..."):
                 submit_and_wait(
                     api,
@@ -364,7 +381,7 @@ def display_result(api: GeoWorldBackendClient) -> None:
     if job is None or not job_id:
         return
     if job.status == "failed":
-        st.error(job.error or "GeoWorld job failed.")
+        st.error(friendly_job_error(job.error))
         return
     if job.result is None:
         st.warning("GeoWorld completed without a result payload.")
@@ -512,35 +529,15 @@ with st.sidebar:
     try:
         health = api.get_llm_health()
         diagnostic = health_diagnostic(health)
-        st.caption(f"LLM status: {diagnostic['overall_status']}")
-        if diagnostic["active_provider"]:
-            st.caption(
-                f"Active: {diagnostic['active_provider']} / {diagnostic['active_model']}"
-            )
+        if diagnostic["overall_status"] == "available":
+            st.success("GeoWorld is ready")
         else:
-            st.caption("Active provider: none")
-        with st.expander("Connection diagnostic"):
-            st.write({
-                "primary": diagnostic["primary"],
-                "fallback": diagnostic["fallback"],
-                "local_fallback": diagnostic["local_fallback"],
-            })
+            st.warning(
+                "AI interpretation is temporarily unavailable. "
+                "LAS Quicklook and deterministic tools can still run."
+            )
     except Exception:
-        st.caption("LLM status unavailable")
-    try:
-        if "capability_catalog" not in st.session_state:
-            st.session_state["capability_catalog"] = api.get_capabilities()
-        capability_catalog = st.session_state["capability_catalog"]
-        with st.expander(
-            f"Available capabilities ({len(capability_catalog.capabilities)})"
-        ):
-            st.caption(f"Registry snapshot: {capability_catalog.catalog_version[:20]}…")
-            for capability in capability_catalog.capabilities:
-                st.write(f"**{capability.name}** · {capability.category} · v{capability.version}")
-                if capability.produced_variables:
-                    st.caption("Produces: " + ", ".join(capability.produced_variables))
-    except Exception:
-        st.caption("Capability catalog unavailable")
+        st.warning("GeoWorld service status is temporarily unavailable")
     if st.button("Log out"):
         clear_session()
         st.rerun()

@@ -5,13 +5,15 @@ from pathlib import Path
 
 import pytest
 
-from geoworld_open.client.models import ArtifactInfo
+from geoworld_open.client.models import ArtifactInfo, LASQuicklookSettings
 from geoworld_open.studio_runtime import (
     LAS_INVENTORY_NAME,
     artifact_named,
     decode_json_object,
     encode_las_upload,
+    friendly_job_error,
     health_diagnostic,
+    las_form_signature,
     output_coverage_rows,
     provenance_lines,
     sort_figure_artifacts,
@@ -128,3 +130,35 @@ def test_public_las_samples_are_synthetic_and_available_to_studio() -> None:
     assert "WELL.             BETA 2" in beta.read_text(encoding="utf-8")
     assert "STRT.M" in alpha.read_text(encoding="utf-8")
     assert "STRT.FT" in beta.read_text(encoding="utf-8")
+
+
+def test_las_form_signature_changes_with_files_and_unit_without_storing_content() -> None:
+    native = LASQuicklookSettings(selected_curves=["GR"])
+    metric = LASQuicklookSettings(selected_curves=["GR"], target_depth_unit="m")
+
+    first = las_form_signature([("alpha.las", 100)], native)
+    changed_file = las_form_signature([("alpha.las", 100), ("beta.las", 200)], native)
+    changed_unit = las_form_signature([("alpha.las", 100)], metric)
+
+    assert first != changed_file
+    assert first != changed_unit
+    assert "alpha" not in first
+    assert len(first) == 64
+
+
+def test_known_las_failures_are_actionable() -> None:
+    units = friendly_job_error(
+        "Selected wells use incompatible measured-depth units; choose a target depth unit."
+    )
+    curves = friendly_job_error("No selected LAS curves have valid values to plot.")
+
+    assert "Choose metres or feet" in units
+    assert "Clear the Curves box" in curves
+
+
+def test_studio_sidebar_does_not_expose_developer_diagnostics() -> None:
+    source = (ROOT / "apps" / "studio_streamlit.py").read_text(encoding="utf-8")
+
+    assert 'st.success("GeoWorld is ready")' in source
+    assert 'st.expander("Connection diagnostic")' not in source
+    assert 'f"Available capabilities (' not in source
