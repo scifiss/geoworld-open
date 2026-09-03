@@ -252,8 +252,8 @@ def render_las_workspace(api: GeoWorldBackendClient) -> None:
     )
 
     sample_paths = [
-        LAS_SAMPLE_DIR / "well_alpha_m.las",
-        LAS_SAMPLE_DIR / "well_beta_ft_decreasing.las",
+        LAS_SAMPLE_DIR / "gw_demo_01_layered.las",
+        LAS_SAMPLE_DIR / "gw_demo_02_layered.las",
     ]
     available_samples = [path for path in sample_paths if path.is_file()]
     if available_samples:

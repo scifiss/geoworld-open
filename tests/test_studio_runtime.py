@@ -123,13 +123,19 @@ def test_las_summary_artifacts_are_found_and_safely_decoded() -> None:
 
 
 def test_public_las_samples_are_synthetic_and_available_to_studio() -> None:
-    alpha = ROOT / "examples" / "las" / "well_alpha_m.las"
-    beta = ROOT / "examples" / "las" / "well_beta_ft_decreasing.las"
+    first = ROOT / "examples" / "las" / "gw_demo_01_layered.las"
+    second = ROOT / "examples" / "las" / "gw_demo_02_layered.las"
+    first_text = first.read_text(encoding="utf-8")
+    second_text = second.read_text(encoding="utf-8")
 
-    assert "WELL.           ALPHA-1" in alpha.read_text(encoding="utf-8")
-    assert "WELL.             BETA 2" in beta.read_text(encoding="utf-8")
-    assert "STRT.M" in alpha.read_text(encoding="utf-8")
-    assert "STRT.FT" in beta.read_text(encoding="utf-8")
+    assert "WELL.          GW-DEMO-01" in first_text
+    assert "WELL.          GW-DEMO-02" in second_text
+    assert "STRT.M              1800.0" in first_text
+    assert "STRT.M              1810.0" in second_text
+    assert "high porosity clean sand" in first_text
+    assert "lower porosity cemented sand" in second_text
+    assert len([line for line in first_text.splitlines() if line[:1].isdigit()]) == 201
+    assert len([line for line in second_text.splitlines() if line[:1].isdigit()]) == 201
 
 
 def test_las_form_signature_changes_with_files_and_unit_without_storing_content() -> None:
