@@ -5,6 +5,8 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
+from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any, Iterable, Mapping, TypeVar
 
@@ -16,6 +18,17 @@ ArtifactT = TypeVar("ArtifactT")
 LAS_INVENTORY_NAME = "las_curve_inventory.json"
 LAS_QC_NAME = "las_qc_summary.json"
 LAS_OBSERVATION_NAME = "las_observation_summary.json"
+
+
+@dataclass(frozen=True)
+class LASHeaderMetadata:
+    """Non-numerical names discovered in one uploaded LAS header."""
+
+    filename: str
+    well_name: str
+    depth_mnemonic: str | None
+    curve_mnemonics: tuple[str, ...]
+    warnings: tuple[str, ...] = ()
 
 
 def figure_priority(name: str) -> tuple[int, str]:
@@ -55,6 +68,82 @@ def encode_las_upload(filename: str, content: bytes) -> UploadedLASFile:
     )
 
 
+def inspect_las_header(filename: str, content: bytes) -> LASHeaderMetadata:
+    """Read well and curve names without parsing or interpreting numerical samples."""
+
+    safe_name = PurePosixPath(str(filename).replace("\\", "/")).name.strip()
+    if not safe_name or not content:
+        raise ValueError("LAS header inspection requires a named, non-empty file")
+    try:
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = content.decode("latin-1")
+
+    current_section: str | None = None
+    well_name = ""
+    curve_names: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith("~"):
+            current_section = stripped[1:2].upper()
+            if current_section == "A":
+                break
+            continue
+        if current_section not in {"W", "C"}:
+            continue
+        definition = _parse_las_header_definition(line)
+        if definition is None:
+            continue
+        mnemonic, value = definition
+        if current_section == "W" and mnemonic.upper() == "WELL":
+            well_name = value.strip()
+        elif current_section == "C" and mnemonic not in curve_names:
+            curve_names.append(mnemonic)
+
+    warnings: list[str] = []
+    if not well_name:
+        well_name = _safe_las_identifier(PurePosixPath(safe_name).stem)
+        warnings.append("WELL name is missing; the sanitized filename will identify this well.")
+    if not curve_names:
+        warnings.append("No curve definitions were found in the LAS header.")
+
+    return LASHeaderMetadata(
+        filename=safe_name,
+        well_name=well_name,
+        depth_mnemonic=curve_names[0] if curve_names else None,
+        curve_mnemonics=tuple(curve_names[1:]),
+        warnings=tuple(warnings),
+    )
+
+
+def recommended_las_curves(available: Iterable[str], *, limit: int = 4) -> list[str]:
+    """Choose familiar available curves while preserving explicit user control."""
+
+    options = list(dict.fromkeys(str(item).strip() for item in available if str(item).strip()))
+    preferred = ["GR", "RHOB", "NPHI", "DT"]
+    by_uppercase = {name.upper(): name for name in options}
+    selected = [by_uppercase[name] for name in preferred if name in by_uppercase]
+    return selected[:limit] or options[:limit]
+
+
+def _parse_las_header_definition(line: str) -> tuple[str, str] | None:
+    left, _, _description = line.partition(":")
+    match = re.match(r"\s*([A-Za-z0-9_]+)\.([^\s]*)\s*(.*?)\s*$", left)
+    if not match:
+        return None
+    return match.group(1).strip(), match.group(3).strip()
+
+
+def _safe_las_identifier(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_.:-]+", "_", value.strip())
+    cleaned = cleaned.strip("._:-") or "well"
+    if not re.match(r"^[A-Za-z0-9]", cleaned):
+        cleaned = f"well_{cleaned}"
+    return cleaned[:80]
+
+
 def las_form_signature(
     files: Iterable[tuple[str, int]],
     settings: object,
@@ -91,8 +180,8 @@ def friendly_job_error(error: str | None) -> str:
         )
     if "No selected LAS curves" in message or "selected curves has valid samples" in message:
         return (
-            "GeoWorld could not find the requested curves in this file. Clear the Curves box "
-            "to select curves automatically, or enter mnemonics shown in the LAS file."
+            "GeoWorld could not find usable samples for the selected curves. Choose one or more "
+            "curves from the detected list and try again."
         )
     if "No valid LAS files" in message:
         return "GeoWorld could not read a valid LAS file. Check the file format and try again."

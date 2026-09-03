@@ -36,9 +36,11 @@ from geoworld_open.studio_runtime import (
     encode_las_upload,
     friendly_job_error,
     health_diagnostic,
+    inspect_las_header,
     las_form_signature,
     output_coverage_rows,
     provenance_lines,
+    recommended_las_curves,
     sort_figure_artifacts,
 )
 
@@ -168,10 +170,6 @@ def submit_and_wait(api: GeoWorldBackendClient, request: JobCreateRequest) -> No
     st.session_state["last_job"] = poll_job(api, created.job_id)
 
 
-def comma_separated_values(value: str) -> list[str]:
-    return list(dict.fromkeys(item.strip() for item in value.split(",") if item.strip()))
-
-
 def load_json_artifact(
     api: GeoWorldBackendClient,
     job_id: str,
@@ -275,28 +273,88 @@ def render_las_workspace(api: GeoWorldBackendClient) -> None:
         accept_multiple_files=True,
         help="Choose one or more CWLS LAS text files. Files are sent only when you run the workflow.",
     )
+    las_metadata = []
+    for item in uploaded or []:
+        try:
+            las_metadata.append(inspect_las_header(item.name, item.getvalue()))
+        except ValueError as exc:
+            st.warning(f"Could not inspect {item.name}: {exc}")
+
     if uploaded:
+        metadata_by_filename = {item.filename: item for item in las_metadata}
         st.dataframe(
             [
-                {"Filename": item.name, "Size (bytes)": len(item.getvalue())}
+                {
+                    "Filename": item.name,
+                    "Detected well": (
+                        metadata_by_filename[item.name].well_name
+                        if item.name in metadata_by_filename
+                        else "Not detected"
+                    ),
+                    "Available curves": (
+                        ", ".join(metadata_by_filename[item.name].curve_mnemonics)
+                        if item.name in metadata_by_filename
+                        else "Not detected"
+                    ),
+                    "Size (bytes)": len(item.getvalue()),
+                }
                 for item in uploaded
             ],
             width="stretch",
             hide_index=True,
         )
+        for metadata in las_metadata:
+            for warning in metadata.warnings:
+                st.warning(f"{metadata.filename}: {warning}")
+
+    header_signature = las_form_signature(
+        [(item.name, len(item.getvalue())) for item in uploaded or []],
+        {
+            "headers": [
+                {
+                    "filename": item.filename,
+                    "well_name": item.well_name,
+                    "curves": list(item.curve_mnemonics),
+                }
+                for item in las_metadata
+            ]
+        },
+    )
+    well_label_to_name: dict[str, str] = {}
+    for metadata in las_metadata:
+        label = metadata.well_name
+        if label in well_label_to_name:
+            label = f"{metadata.well_name} — {metadata.filename}"
+        well_label_to_name[label] = metadata.well_name
+    available_curves = list(
+        dict.fromkeys(
+            curve
+            for metadata in las_metadata
+            for curve in metadata.curve_mnemonics
+        )
+    )
 
     with st.expander("Quicklook controls", expanded=bool(uploaded)):
         st.caption(
-            "Leave wells blank to include every parsed well. Curve names may be LAS mnemonics or supported aliases."
+            "Choose from the wells and curves GeoWorld discovered in the uploaded LAS headers."
         )
         selection_columns = st.columns(2)
-        selected_wells_text = selection_columns[0].text_input(
-            "Wells (optional, comma separated)",
-            value="",
+        selected_well_labels = selection_columns[0].multiselect(
+            "Wells",
+            options=list(well_label_to_name),
+            default=list(well_label_to_name),
+            key=f"las-wells-{header_signature[:16]}",
+            help="All detected wells are selected by default.",
         )
-        selected_curves_text = selection_columns[1].text_input(
-            "Curves (comma separated)",
-            value="GR, RHOB, NPHI, DT",
+        selected_curves = selection_columns[1].multiselect(
+            "Curves",
+            options=available_curves,
+            default=recommended_las_curves(available_curves),
+            key=f"las-curves-{header_signature[:16]}",
+            help="Only curves declared by the uploaded LAS files are shown.",
+        )
+        selected_wells = list(
+            dict.fromkeys(well_label_to_name[label] for label in selected_well_labels)
         )
         setting_columns = st.columns(3)
         depth_mode = setting_columns[0].selectbox(
@@ -333,8 +391,8 @@ def render_las_workspace(api: GeoWorldBackendClient) -> None:
             )
 
     settings = LASQuicklookSettings(
-        selected_wells=comma_separated_values(selected_wells_text),
-        selected_curves=comma_separated_values(selected_curves_text),
+        selected_wells=selected_wells,
+        selected_curves=selected_curves,
         depth_range_mode=depth_mode,
         custom_depth_min=custom_min,
         custom_depth_max=custom_max,
@@ -357,7 +415,12 @@ def render_las_workspace(api: GeoWorldBackendClient) -> None:
     if st.button(
         "Run LAS Quicklook",
         type="primary",
-        disabled=not uploaded or not custom_range_valid,
+        disabled=(
+            not uploaded
+            or not selected_wells
+            or not selected_curves
+            or not custom_range_valid
+        ),
     ):
         try:
             uploads = [encode_las_upload(item.name, item.getvalue()) for item in uploaded]
