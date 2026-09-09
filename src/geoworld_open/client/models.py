@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class UserProfile(BaseModel):
@@ -105,11 +105,39 @@ class CapabilityCatalog(BaseModel):
     capabilities: list[CapabilityDescription]
 
 
+class QACitation(BaseModel):
+    """Sanitized pointer to reviewed evidence used for one grounded answer."""
+
+    citation_id: str = Field(pattern=r"^citation:[0-9a-f]{24}$")
+    source_id: str = Field(min_length=1)
+    chunk_id: str = Field(min_length=1)
+    locator: str = Field(min_length=1)
+    content_hash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+
+
 class JobResult(BaseModel):
     intent: str
     reason: str
     answer: str
     mode: str | None = None
+    grounding_status: Literal[
+        "geoworld_grounded",
+        "evidence_insufficient",
+        "general_model_uncited",
+    ] | None = None
+    retrieval_id: str | None = Field(
+        default=None,
+        pattern=r"^retrieval-[0-9a-f]{32}$",
+    )
+    index_version: str | None = Field(
+        default=None,
+        pattern=r"^sha256:[0-9a-f]{64}$",
+    )
+    catalog_version: str | None = Field(
+        default=None,
+        pattern=r"^sha256:[0-9a-f]{64}$",
+    )
+    citations: list[QACitation] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
     storage: dict[str, Any] = Field(default_factory=dict)
     layers: list[dict[str, Any]] = Field(default_factory=list)
@@ -121,6 +149,14 @@ class JobResult(BaseModel):
     produced_outputs: list[str] = Field(default_factory=list)
     output_coverage: dict[str, bool] = Field(default_factory=dict)
     provenance_summary: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_grounding(self) -> "JobResult":
+        if self.grounding_status == "geoworld_grounded" and not self.citations:
+            raise ValueError("grounded answers require citations")
+        if self.grounding_status != "geoworld_grounded" and self.citations:
+            raise ValueError("only grounded answers may carry citations")
+        return self
 
 
 class JobStatusResponse(BaseModel):

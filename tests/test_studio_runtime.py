@@ -13,6 +13,7 @@ from geoworld_open.studio_runtime import (
     encode_las_upload,
     friendly_job_error,
     health_diagnostic,
+    human_citation_lines,
     inspect_las_header,
     las_form_signature,
     output_coverage_rows,
@@ -91,6 +92,15 @@ def test_provenance_summary_is_concise_and_trace_derived() -> None:
         "Capabilities: request_router -> semantic_model_parser -> synthetic_avo_runner",
         "Artifacts recorded: 17",
         "Manifest: manifest.json",
+    ]
+
+
+def test_qa_citations_are_concise_and_do_not_render_private_content() -> None:
+    class Citation:
+        locator = "geophysics/avo.md#AVO forward modeling"
+
+    assert human_citation_lines([Citation()]) == [
+        "[1] geophysics/avo.md — AVO forward modeling"
     ]
 
 

@@ -14,6 +14,7 @@ from geoworld_open.client.models import (
     JobResult,
     JobStatusResponse,
     LASQuicklookSettings,
+    QACitation,
     UploadedLASFile,
     UserProfile,
 )
@@ -30,6 +31,7 @@ __all__ = [
     "JobResult",
     "JobStatusResponse",
     "LASQuicklookSettings",
+    "QACitation",
     "UploadedLASFile",
     "UserProfile",
 ]

@@ -36,6 +36,7 @@ from geoworld_open.studio_runtime import (
     encode_las_upload,
     friendly_job_error,
     health_diagnostic,
+    human_citation_lines,
     inspect_las_header,
     las_form_signature,
     output_coverage_rows,
@@ -479,6 +480,14 @@ def display_result(api: GeoWorldBackendClient) -> None:
                 st.warning(str(exc))
         st.subheader("GeoWorld result")
         st.write(result.answer)
+        if result.grounding_status == "geoworld_grounded":
+            st.success("Grounded in reviewed GeoWorld knowledge")
+            for citation_line in human_citation_lines(result.citations):
+                st.caption(citation_line)
+        elif result.grounding_status == "evidence_insufficient":
+            st.info("GeoWorld did not find enough reviewed evidence for a grounded answer.")
+        elif result.grounding_status == "general_model_uncited":
+            st.warning("General model answer — not supported by a GeoWorld knowledge citation.")
         st.caption(f"Route: {result.intent}" + (f" · mode: {result.mode}" if result.mode else ""))
         if result.interpretation_mode:
             st.caption(

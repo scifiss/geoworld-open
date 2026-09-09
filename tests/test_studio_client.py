@@ -10,6 +10,7 @@ from geoworld_open.client import (
     GeoWorldClientError,
     JobCreateRequest,
     LASQuicklookSettings,
+    JobResult,
     UploadedLASFile,
 )
 
@@ -117,6 +118,53 @@ def test_authenticated_build_job_round_trip() -> None:
     assert submitted["interpretation_mode"] == "deterministic_fallback"
     assert submitted["interpretation_degraded"] is True
     assert submitted["degraded_fallback_confirmed"] is True
+
+
+def test_grounded_qa_result_parses_typed_citations() -> None:
+    result = JobResult.model_validate(
+        {
+            "intent": "rag_qa",
+            "reason": "question",
+            "answer": "AVO is angle-dependent reflectivity.",
+            "mode": "retrieval_augmented_llm",
+            "grounding_status": "geoworld_grounded",
+            "retrieval_id": "retrieval-0123456789abcdef0123456789abcdef",
+            "index_version": "sha256:" + "1" * 64,
+            "catalog_version": "sha256:" + "2" * 64,
+            "citations": [
+                {
+                    "citation_id": "citation:" + "a" * 24,
+                    "source_id": "source:avo",
+                    "chunk_id": "chunk:avo",
+                    "locator": "geophysics/avo.md#AVO forward modeling",
+                    "content_hash": "sha256:" + "3" * 64,
+                }
+            ],
+        }
+    )
+
+    assert result.citations[0].locator == "geophysics/avo.md#AVO forward modeling"
+    with pytest.raises(ValidationError, match="grounded answers require citations"):
+        JobResult(
+            intent="rag_qa",
+            reason="question",
+            answer="unsupported",
+            grounding_status="geoworld_grounded",
+        )
+
+
+@pytest.mark.parametrize("status", [None, "evidence_insufficient", "general_model_uncited"])
+def test_only_explicitly_grounded_answers_can_have_citations(status) -> None:
+    with pytest.raises(ValidationError, match="only grounded answers"):
+        JobResult(
+            intent="rag_qa", reason="question", answer="answer", grounding_status=status,
+            citations=[{
+                "citation_id": "citation:" + "a" * 24,
+                "source_id": "source:avo", "chunk_id": "chunk:avo",
+                "locator": "geophysics/avo.md#AVO forward modeling",
+                "content_hash": "sha256:" + "3" * 64,
+            }],
+        )
 
 
 def test_intent_preview_uses_public_http_contract() -> None:

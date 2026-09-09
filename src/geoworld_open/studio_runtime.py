@@ -263,3 +263,17 @@ def provenance_lines(summary: Mapping[str, Any]) -> list[str]:
     if summary.get("manifest_artifact"):
         lines.append(f"Manifest: {summary['manifest_artifact']}")
     return lines
+
+
+def human_citation_lines(citations: Iterable[object]) -> list[str]:
+    """Format sanitized Q&A citations without exposing private retrieved text."""
+
+    lines: list[str] = []
+    for index, citation in enumerate(citations, start=1):
+        locator = str(getattr(citation, "locator", "")).strip()
+        if not locator:
+            continue
+        source, separator, heading = locator.partition("#")
+        label = f"{source} — {heading}" if separator and heading else locator
+        lines.append(f"[{index}] {label}")
+    return lines
