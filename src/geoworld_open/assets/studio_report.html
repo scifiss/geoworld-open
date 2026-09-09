@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'sha256-$script_hash'; base-uri 'none'; form-action 'none'">
+<title>GeoWorld Studio — clean run report</title>
+<style>$css</style>
+</head>
+<body style="--text-size: ${text_px}px; --figure-width: ${figure_px}px">
+<nav class="report-controls" aria-label="Report display controls">
+  <div class="control-row">
+    <label>Page scale <output id="scale-value" for="scale">100%</output>
+      <input id="scale" type="range" min="80" max="150" step="5" value="100"></label>
+    <label>Text size <output id="text-value" for="text">${text_px}px</output>
+      <input id="text" type="range" min="16" max="24" step="1" value="$text_px"></label>
+    <label>Figure width <output id="figure-value" for="figure">${figure_px}px</output>
+      <input id="figure" type="range" min="480" max="1200" step="40" value="$figure_px"></label>
+  </div>
+  <div class="control-row actions">
+    <button id="capture" type="button">Capture view</button>
+    <button id="fullscreen" type="button">Full screen</button>
+    <button id="print" type="button">Print / Save PDF</button>
+    <button id="reset" type="button">Reset sizes</button>
+  </div>
+  <p id="help" role="status">Capture view hides these controls. Press Esc or tap the page to restore them.
+    Use your browser's full-page screenshot to include everything below the fold.</p>
+</nav>
+<main id="report">
+  <header><p class="eyebrow">SCIENTIFIC WORKSPACE · RUN REPORT</p>
+    <h1>GeoWorld Studio</h1>
+    <p class="subtitle">From your question to the result</p></header>
+  <section class="question"><h2>Your question / request</h2><div class="prose">$prompt</div></section>
+  <section><h2>GeoWorld result</h2><p class="status">$status</p><div class="prose">$answer</div>$citations</section>
+  $figures
+  $assumptions
+  <footer>Presentation copy · Original scientific figures are unchanged.</footer>
+</main>
+<script>$script</script>
+</body>
+</html>

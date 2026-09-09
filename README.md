@@ -34,6 +34,10 @@ official service. Its sidebar reports the active capability-registry snapshot, a
 submitted job exposes a content-free correlation reference for diagnostics. Two synthetic
 [LAS samples](examples/las/) are included for the measured-depth Quicklook workflow.
 
+Studio provides responsive Auto / One column / Two columns layouts, figures that
+fit their column, and sidebar PDF/HTML saving without a separate screenshot mode:
+[layout and saving guide](docs/studio-screenshots.md).
+
 ## Architecture
 
 ```mermaid

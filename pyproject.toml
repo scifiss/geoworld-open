@@ -31,7 +31,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-demo = ["streamlit>=1.35"]
+demo = ["streamlit>=1.63"]
 dev = ["pytest>=8"]
 
 [project.urls]
@@ -48,6 +48,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "geoworld_open.benchmarks.data" = ["*.yaml"]
+"geoworld_open" = ["assets/studio_report.html", "assets/studio_report.css", "assets/studio_report.js", "assets/studio_export.html", "assets/studio_export.css", "assets/studio_export.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

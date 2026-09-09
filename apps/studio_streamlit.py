@@ -27,6 +27,13 @@ from geoworld_open.client import (
     LASQuicklookSettings,
 )
 from geoworld_open.client.backend import backend_url_from_environment
+from geoworld_open.studio_presentation import (
+    DisplayOptions,
+    ReportFigure,
+    build_clean_report,
+    studio_export_controls,
+    studio_display_css,
+)
 from geoworld_open.studio_runtime import (
     LAS_INVENTORY_NAME,
     LAS_OBSERVATION_NAME,
@@ -89,6 +96,7 @@ def client(token: str | None = None) -> GeoWorldBackendClient:
 
 
 def clear_session() -> None:
+    clear_last_result()
     for key in (
         "access_token",
         "user_email",
@@ -97,12 +105,17 @@ def clear_session() -> None:
         "detected_intent",
         "auto_route_confirmed",
         "fallback_confirmed",
-        "last_job",
-        "last_job_id",
-        "last_correlation_id",
         "capability_catalog",
         "active_workspace",
         "las_form_signature",
+    ):
+        st.session_state.pop(key, None)
+
+
+def clear_last_result() -> None:
+    for key in (
+        "last_job", "last_job_id", "last_correlation_id",
+        "last_submitted_prompt", "clean_report",
     ):
         st.session_state.pop(key, None)
 
@@ -166,6 +179,9 @@ def poll_job(api: GeoWorldBackendClient, job_id: str):
 
 def submit_and_wait(api: GeoWorldBackendClient, request: JobCreateRequest) -> None:
     created = api.submit_job(request)
+    clear_last_result()
+    # Bind presentation exports to the accepted request, not a later editor value.
+    st.session_state["last_submitted_prompt"] = request.prompt
     st.session_state["last_job_id"] = created.job_id
     st.session_state["last_correlation_id"] = created.correlation_id
     st.session_state["last_job"] = poll_job(api, created.job_id)
@@ -409,8 +425,7 @@ def render_las_workspace(api: GeoWorldBackendClient) -> None:
         settings,
     )
     if st.session_state.get("las_form_signature") != signature:
-        for key in ("last_job", "last_job_id", "last_correlation_id"):
-            st.session_state.pop(key, None)
+        clear_last_result()
         st.session_state["las_form_signature"] = signature
 
     if st.button(
@@ -439,7 +454,57 @@ def render_las_workspace(api: GeoWorldBackendClient) -> None:
             st.error(f"LAS Quicklook request failed: {exc}")
 
 
-def display_result(api: GeoWorldBackendClient) -> None:
+def render_save_controls(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
+    with st.sidebar, st.expander("Save & export"):
+        # Only packaged static code is executed; no prompt/result/session data is
+        # interpolated into this HTML. The click never submits a Streamlit job.
+        st.html(studio_export_controls(), unsafe_allow_javascript=True)
+        st.caption(
+            "PDF saves the visible page and selected results tab; the sidebar is excluded. "
+            "Review visible content first. Choose Landscape and turn off Headers and footers "
+            "in the browser's print dialog."
+        )
+        job = st.session_state.get("last_job")
+        job_id = st.session_state.get("last_job_id")
+        if not job_id or job is None or job.status != "succeeded" or job.result is None:
+            st.caption("Complete a run to save an offline HTML report.")
+            return
+        result = job.result
+        st.caption(
+            "HTML is a formatted offline report, not a copy of the live interface. "
+            "It contains the submitted question, answer, citations, figures, and assumptions, "
+            "without account details or technical traces. Review it before sharing."
+        )
+        if st.button("Prepare HTML report", key=f"report-prepare-{job_id}"):
+            st.session_state.pop("clean_report", None)
+            try:
+                figures = [
+                    ReportFigure(artifact.name, api.get_artifact(job_id, artifact.name))
+                    for artifact in sort_figure_artifacts(result.artifacts)
+                    if artifact.kind == "image"
+                ]
+                html = build_clean_report(
+                    prompt=st.session_state.get("last_submitted_prompt"),
+                    result=result,
+                    figures=figures,
+                    options=options,
+                )
+                # Session-only: never use a shared cache for a user's report.
+                st.session_state["clean_report"] = (job_id, options, html)
+            except (GeoWorldClientError, ValueError) as exc:
+                st.warning(f"Could not prepare the complete clean report: {exc}")
+        report = st.session_state.get("clean_report")
+        if report and report[:2] == (job_id, options):
+            st.download_button(
+                "Download HTML report",
+                data=report[2],
+                file_name="geoworld-clean-report.html",
+                mime="text/html",
+                key=f"report-download-{job_id}",
+            )
+
+
+def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
     job = st.session_state.get("last_job")
     job_id = st.session_state.get("last_job_id")
     if job is None or not job_id:
@@ -457,7 +522,6 @@ def display_result(api: GeoWorldBackendClient) -> None:
         artifact for artifact in result.artifacts if artifact.kind == "image"
     )
 
-    st.divider()
     with st.expander("Job details"):
         st.write(f"**Job:** `{job_id}`")
         if correlation_id:
@@ -475,7 +539,7 @@ def display_result(api: GeoWorldBackendClient) -> None:
     with overview:
         if images:
             try:
-                st.image(api.get_artifact(job_id, images[0].name), width="stretch")
+                st.image(api.get_artifact(job_id, images[0].name), width="stretch" if options.fit_figures else options.figure_px)
             except GeoWorldClientError as exc:
                 st.warning(str(exc))
         st.subheader("GeoWorld result")
@@ -510,15 +574,17 @@ def display_result(api: GeoWorldBackendClient) -> None:
     with science:
         for artifact in images:
             try:
-                st.image(api.get_artifact(job_id, artifact.name), caption=artifact.name, width="stretch")
+                st.image(api.get_artifact(job_id, artifact.name), caption=artifact.name, width="stretch" if options.fit_figures else options.figure_px)
             except GeoWorldClientError as exc:
                 st.warning(f"{artifact.name}: {exc}")
-        if result.layers:
-            st.subheader("Layers")
-            st.dataframe(result.layers, width="stretch")
-        if result.storage:
-            st.subheader("Scientific summary")
-            st.json(result.storage)
+        if result.layers or result.storage:
+            with st.expander("Tables & scientific details"):
+                if result.layers:
+                    st.subheader("Layers")
+                    st.dataframe(result.layers, width="stretch")
+                if result.storage:
+                    st.subheader("Scientific summary")
+                    st.json(result.storage)
         if result.mode == "las_quicklook_v1" or result.intent == "las_quicklook":
             render_las_details(api, job_id, result.artifacts)
 
@@ -589,6 +655,207 @@ def display_result(api: GeoWorldBackendClient) -> None:
         st.json(result.model_dump(mode="json"))
 
 
+def render_workspace(api: GeoWorldBackendClient) -> None:
+    """Render the existing workflow in a stable presentation-only container."""
+    workspace = st.radio(
+        "Workspace",
+        ["Ask or Build", "LAS Quicklook"],
+        horizontal=True,
+    )
+    if st.session_state.get("active_workspace") != workspace:
+        clear_last_result()
+        st.session_state["active_workspace"] = workspace
+
+    if workspace == "LAS Quicklook":
+        render_las_workspace(api)
+        return
+
+    cols = st.columns(len(EXAMPLES))
+    for column, (label, example) in zip(cols, EXAMPLES.items()):
+        if column.button(label, use_container_width=True):
+            st.session_state["prompt"] = example
+            for key in (
+                "prepared_geospec",
+                "prepared_preview",
+                "detected_intent",
+                "auto_route_confirmed",
+                "fallback_confirmed",
+            ):
+                st.session_state.pop(key, None)
+            st.rerun()
+
+    if "prompt" not in st.session_state:
+        st.session_state["prompt"] = EXAMPLES["Seismic + AVO"]
+
+    prompt = st.text_area(
+        "What would you like GeoWorld to do?",
+        key="prompt",
+        height=130,
+    )
+    if st.session_state.get("runtime_prompt") != prompt:
+        for key in (
+            "prepared_geospec",
+            "prepared_preview",
+            "detected_intent",
+            "auto_route_confirmed",
+            "fallback_confirmed",
+        ):
+            st.session_state.pop(key, None)
+        st.session_state["runtime_prompt"] = prompt
+
+    intent_label = st.radio(
+        "Intent",
+        ["Auto", "Build Model", "Ask Question"],
+        horizontal=True,
+    )
+
+    if st.session_state.get("runtime_intent_label") != intent_label:
+        for key in (
+            "prepared_geospec",
+            "prepared_preview",
+            "detected_intent",
+            "auto_route_confirmed",
+            "fallback_confirmed",
+        ):
+            st.session_state.pop(key, None)
+        st.session_state["runtime_intent_label"] = intent_label
+
+    selected_intent: str | None
+    route_confirmed = True
+    if intent_label == "Auto":
+        if st.button("Determine route", type="primary", disabled=not prompt.strip()):
+            try:
+                with st.spinner("GeoWorld is classifying the request..."):
+                    st.session_state["detected_intent"] = api.preview_intent(prompt)
+            except GeoWorldClientError as exc:
+                st.error(str(exc))
+        detected = st.session_state.get("detected_intent")
+        selected_intent = None
+        if isinstance(detected, dict):
+            selected_intent = str(detected.get("intent") or "") or None
+            message = f"Detected intent: {detected.get('label', selected_intent)}. {detected.get('reason', '')}"
+            if detected.get("needs_confirmation"):
+                st.warning(message)
+                route_confirmed = st.checkbox(
+                    "Use this proposed route",
+                    key="auto_route_confirmed",
+                )
+            else:
+                st.info(message)
+    else:
+        selected_intent = "build_model" if intent_label == "Build Model" else "ask_question"
+        st.info(f"Selected intent: {intent_label}.")
+
+    if selected_intent == "build_model" and route_confirmed:
+        st.subheader("Build model")
+        if st.button("Prepare model", type="primary", disabled=not prompt.strip()):
+            try:
+                with st.spinner("GeoWorld is interpreting and validating the model request..."):
+                    preview = api.preview_geospec(prompt=prompt)
+                st.session_state["prepared_preview"] = preview
+                if preview.get("valid") and isinstance(preview.get("geospec"), dict):
+                    st.session_state["prepared_geospec"] = preview["geospec"]
+                    if preview.get("degraded"):
+                        st.warning(
+                            preview.get("diagnostic")
+                            or "LLM interpretation was unavailable. Review and confirm the limited deterministic interpretation."
+                        )
+                    else:
+                        st.success(
+                            "Validated GeoSpec prepared by the configured LLM path. Review it, then run the model."
+                        )
+                else:
+                    st.session_state.pop("prepared_geospec", None)
+                    st.error("GeoWorld could not prepare a valid model from this request.")
+            except GeoWorldClientError as exc:
+                st.error(str(exc))
+
+        preview = st.session_state.get("prepared_preview")
+        prepared = st.session_state.get("prepared_geospec")
+        confirmation_required = bool(
+            isinstance(preview, dict) and preview.get("confirmation_required")
+        )
+        confirmed = not confirmation_required
+        if isinstance(preview, dict):
+            interpretation_mode = preview.get("interpretation_mode") or preview.get("parser_mode")
+            st.caption(
+                f"Interpretation mode: {interpretation_mode or 'unknown'}"
+                + (" · degraded fallback" if preview.get("degraded") else "")
+            )
+            with st.expander("Prepared model / assumptions"):
+                issues = preview.get("issues")
+                if isinstance(issues, list):
+                    for issue in issues:
+                        if isinstance(issue, dict):
+                            st.write(
+                                f"{str(issue.get('severity', 'info')).upper()}: "
+                                f"{issue.get('message', '')}"
+                            )
+                geospec = preview.get("geospec")
+                if isinstance(geospec, dict):
+                    assumptions = geospec.get("assumptions")
+                    if isinstance(assumptions, list):
+                        for item in assumptions:
+                            st.markdown(f"- {item}")
+                    st.code(yaml.safe_dump(geospec, sort_keys=False), language="yaml")
+            if confirmation_required:
+                confirmed = st.checkbox(
+                    "I reviewed this limited deterministic interpretation and want to run it",
+                    key="fallback_confirmed",
+                )
+
+        if st.button(
+            "Run model",
+            disabled=not isinstance(prepared, dict) or not confirmed,
+        ):
+            try:
+                with st.spinner("Running GeoWorld scientific workflow..."):
+                    submit_and_wait(
+                        api,
+                        JobCreateRequest(
+                            prompt=prompt,
+                            mode_hint="build_model",
+                            geospec=prepared,
+                            interpretation_mode=(
+                                str(preview.get("interpretation_mode") or preview.get("parser_mode"))
+                                if isinstance(preview, dict)
+                                else "user_geospec_v2"
+                            ),
+                            interpretation_degraded=bool(
+                                isinstance(preview, dict) and preview.get("degraded")
+                            ),
+                            degraded_fallback_confirmed=bool(confirmed),
+                        ),
+                    )
+            except GeoWorldClientError as exc:
+                st.error(str(exc))
+
+    elif selected_intent == "ask_question" and route_confirmed:
+        st.subheader("Ask a question")
+        if st.button("Ask GeoWorld", type="primary", disabled=not prompt.strip()):
+            try:
+                with st.spinner("GeoWorld is preparing an answer..."):
+                    submit_and_wait(
+                        api,
+                        JobCreateRequest(prompt=prompt, mode_hint="ask_question"),
+                    )
+            except GeoWorldClientError as exc:
+                st.error(str(exc))
+    elif selected_intent and route_confirmed:
+        st.warning(
+            "The backend detected a specialized route that this public Ask/Build page does not expose. "
+            "Choose Build Model or Ask Question to override it."
+        )
+
+
+display_options = DisplayOptions(
+    text_px=st.session_state.get("display_text_px", 18),
+    figure_px=st.session_state.get("display_figure_px", 880),
+    layout=st.session_state.get("display_layout", "Auto"),
+    fit_figures=st.session_state.get("display_fit_figures", True),
+)
+st.markdown(studio_display_css(display_options), unsafe_allow_html=True)
+
 token = render_auth()
 if not token:
     st.stop()
@@ -613,203 +880,26 @@ with st.sidebar:
     if st.button("Log out"):
         clear_session()
         st.rerun()
+    st.selectbox("Page layout", ["Auto", "One column", "Two columns"], key="display_layout")
+    st.caption("Auto uses two columns when there is room. Narrow screens always stack for readability.")
+    with st.expander("Display settings"):
+        st.slider("Text size (px)", 16, 24, 18, key="display_text_px")
+        fit_figures = st.checkbox("Fit figures to column", value=True, key="display_fit_figures")
+        st.slider("Figure width (px)", 480, 1200, 880, step=40, key="display_figure_px", disabled=fit_figures)
+        st.caption(
+            "Use browser zoom at 100% for readable text. Figures keep their proportions "
+            "and fit the column by default. Turn off Fit figures to column to choose a smaller width."
+        )
 
 st.title("🌍 GeoWorld Studio")
 st.caption(
     "Ask a geoscience question or describe a model. The public frontend sends validated requests to the protected GeoWorld backend."
 )
 
-workspace = st.radio(
-    "Workspace",
-    ["Ask or Build", "LAS Quicklook"],
-    horizontal=True,
-)
-if st.session_state.get("active_workspace") != workspace:
-    for key in ("last_job", "last_job_id", "last_correlation_id"):
-        st.session_state.pop(key, None)
-    st.session_state["active_workspace"] = workspace
+with st.container(key="studio_workspace_layout"):
+    with st.container(key="studio_workflow"):
+        render_workspace(api)
+    with st.container(key="studio_results"):
+        display_result(api, display_options)
 
-if workspace == "LAS Quicklook":
-    render_las_workspace(api)
-    display_result(api)
-    st.stop()
-
-cols = st.columns(len(EXAMPLES))
-for column, (label, example) in zip(cols, EXAMPLES.items()):
-    if column.button(label, use_container_width=True):
-        st.session_state["prompt"] = example
-        for key in (
-            "prepared_geospec",
-            "prepared_preview",
-            "detected_intent",
-            "auto_route_confirmed",
-            "fallback_confirmed",
-        ):
-            st.session_state.pop(key, None)
-        st.rerun()
-
-if "prompt" not in st.session_state:
-    st.session_state["prompt"] = EXAMPLES["Seismic + AVO"]
-
-prompt = st.text_area(
-    "What would you like GeoWorld to do?",
-    key="prompt",
-    height=130,
-)
-if st.session_state.get("runtime_prompt") != prompt:
-    for key in (
-        "prepared_geospec",
-        "prepared_preview",
-        "detected_intent",
-        "auto_route_confirmed",
-        "fallback_confirmed",
-    ):
-        st.session_state.pop(key, None)
-    st.session_state["runtime_prompt"] = prompt
-
-intent_label = st.radio(
-    "Intent",
-    ["Auto", "Build Model", "Ask Question"],
-    horizontal=True,
-)
-
-if st.session_state.get("runtime_intent_label") != intent_label:
-    for key in (
-        "prepared_geospec",
-        "prepared_preview",
-        "detected_intent",
-        "auto_route_confirmed",
-        "fallback_confirmed",
-    ):
-        st.session_state.pop(key, None)
-    st.session_state["runtime_intent_label"] = intent_label
-
-selected_intent: str | None
-route_confirmed = True
-if intent_label == "Auto":
-    if st.button("Determine route", type="primary", disabled=not prompt.strip()):
-        try:
-            with st.spinner("GeoWorld is classifying the request..."):
-                st.session_state["detected_intent"] = api.preview_intent(prompt)
-        except GeoWorldClientError as exc:
-            st.error(str(exc))
-    detected = st.session_state.get("detected_intent")
-    selected_intent = None
-    if isinstance(detected, dict):
-        selected_intent = str(detected.get("intent") or "") or None
-        message = f"Detected intent: {detected.get('label', selected_intent)}. {detected.get('reason', '')}"
-        if detected.get("needs_confirmation"):
-            st.warning(message)
-            route_confirmed = st.checkbox(
-                "Use this proposed route",
-                key="auto_route_confirmed",
-            )
-        else:
-            st.info(message)
-else:
-    selected_intent = "build_model" if intent_label == "Build Model" else "ask_question"
-    st.info(f"Selected intent: {intent_label}.")
-
-if selected_intent == "build_model" and route_confirmed:
-    st.subheader("Build model")
-    if st.button("Prepare model", type="primary", disabled=not prompt.strip()):
-        try:
-            with st.spinner("GeoWorld is interpreting and validating the model request..."):
-                preview = api.preview_geospec(prompt=prompt)
-            st.session_state["prepared_preview"] = preview
-            if preview.get("valid") and isinstance(preview.get("geospec"), dict):
-                st.session_state["prepared_geospec"] = preview["geospec"]
-                if preview.get("degraded"):
-                    st.warning(
-                        preview.get("diagnostic")
-                        or "LLM interpretation was unavailable. Review and confirm the limited deterministic interpretation."
-                    )
-                else:
-                    st.success(
-                        "Validated GeoSpec prepared by the configured LLM path. Review it, then run the model."
-                    )
-            else:
-                st.session_state.pop("prepared_geospec", None)
-                st.error("GeoWorld could not prepare a valid model from this request.")
-        except GeoWorldClientError as exc:
-            st.error(str(exc))
-
-    preview = st.session_state.get("prepared_preview")
-    prepared = st.session_state.get("prepared_geospec")
-    confirmation_required = bool(
-        isinstance(preview, dict) and preview.get("confirmation_required")
-    )
-    confirmed = not confirmation_required
-    if isinstance(preview, dict):
-        interpretation_mode = preview.get("interpretation_mode") or preview.get("parser_mode")
-        st.caption(
-            f"Interpretation mode: {interpretation_mode or 'unknown'}"
-            + (" · degraded fallback" if preview.get("degraded") else "")
-        )
-        if confirmation_required:
-            confirmed = st.checkbox(
-                "I reviewed this limited deterministic interpretation and want to run it",
-                key="fallback_confirmed",
-            )
-
-    if st.button(
-        "Run model",
-        disabled=not isinstance(prepared, dict) or not confirmed,
-    ):
-        try:
-            with st.spinner("Running GeoWorld scientific workflow..."):
-                submit_and_wait(
-                    api,
-                    JobCreateRequest(
-                        prompt=prompt,
-                        mode_hint="build_model",
-                        geospec=prepared,
-                        interpretation_mode=(
-                            str(preview.get("interpretation_mode") or preview.get("parser_mode"))
-                            if isinstance(preview, dict)
-                            else "user_geospec_v2"
-                        ),
-                        interpretation_degraded=bool(
-                            isinstance(preview, dict) and preview.get("degraded")
-                        ),
-                        degraded_fallback_confirmed=bool(confirmed),
-                    ),
-                )
-        except GeoWorldClientError as exc:
-            st.error(str(exc))
-
-    if isinstance(preview, dict):
-        with st.expander("Prepared model / assumptions"):
-            issues = preview.get("issues")
-            if isinstance(issues, list):
-                for issue in issues:
-                    if isinstance(issue, dict):
-                        st.write(
-                            f"{str(issue.get('severity', 'info')).upper()}: "
-                            f"{issue.get('message', '')}"
-                        )
-            geospec = preview.get("geospec")
-            if isinstance(geospec, dict):
-                assumptions = geospec.get("assumptions")
-                if isinstance(assumptions, list):
-                    for item in assumptions:
-                        st.markdown(f"- {item}")
-                st.code(yaml.safe_dump(geospec, sort_keys=False), language="yaml")
-elif selected_intent == "ask_question" and route_confirmed:
-    st.subheader("Ask a question")
-    if st.button("Ask GeoWorld", type="primary", disabled=not prompt.strip()):
-        try:
-            with st.spinner("GeoWorld is preparing an answer..."):
-                submit_and_wait(
-                    api,
-                    JobCreateRequest(prompt=prompt, mode_hint="ask_question"),
-                )
-        except GeoWorldClientError as exc:
-            st.error(str(exc))
-elif selected_intent and route_confirmed:
-    st.warning(
-        "The backend detected a specialized route that this public Ask/Build page does not expose. "
-        "Choose Build Model or Ask Question to override it."
-    )
-
-display_result(api)
+render_save_controls(api, display_options)

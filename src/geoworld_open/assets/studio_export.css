@@ -1,0 +1,41 @@
+#gw-studio-print {
+  font: inherit;
+  border: 1px solid #ff4b4b;
+  border-radius: .5rem;
+  padding: .5rem .8rem;
+  color: white;
+  background: #ff4b4b;
+  cursor: pointer;
+}
+#gw-studio-print:focus-visible { outline: 3px solid #ff4b4b; outline-offset: 3px; }
+/* Native printing changes presentation only while the print dialog is active.
+   No persistent screenshot class, hidden button, or recovery mode is needed. */
+@media print {
+  @page { size: landscape; margin: 10mm; }
+  html, body, #root,
+  [data-testid="stApp"],
+  [data-testid="stAppViewContainer"],
+  [data-testid="stMain"] {
+    position: static !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+  [data-testid="stSidebar"],
+  [data-testid="stHeader"],
+  [data-testid="stToolbar"],
+  [data-testid="stElementToolbar"],
+  #gw-studio-export-controls {
+    display: none !important;
+  }
+  [data-testid="stMainBlockContainer"] {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    min-height: 0 !important;
+    flex: 0 0 auto !important;
+  }
+  [data-testid="stImage"] { break-inside: avoid; }
+  * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+}
