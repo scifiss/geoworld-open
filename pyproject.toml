@@ -47,6 +47,7 @@ geoworld-open = "geoworld_open.cli:app"
 where = ["src"]
 
 [tool.setuptools.package-data]
+"geoworld_open.reference.deepwave_marmousi" = ["LICENSE.txt", "README.md"]
 "geoworld_open.benchmarks.data" = ["*.yaml"]
 "geoworld_open" = ["assets/studio_report.html", "assets/studio_report.css", "assets/studio_report.js", "assets/studio_export.html", "assets/studio_export.css", "assets/studio_export.js"]
 

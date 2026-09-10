@@ -115,6 +115,7 @@ def clear_session() -> None:
         "active_workspace",
         "las_form_signature",
         "rtm_preview", "rtm_prompt", "rtm_structured", "rtm_input_signature", "rtm_replay_id",
+        "reference_prompt", "reference_preview", "reference_signature", "reference_debug", "reference_action",
     ):
         st.session_state.pop(key, None)
 
@@ -166,10 +167,10 @@ def render_auth() -> str | None:
     return None
 
 
-def poll_job(api: GeoWorldBackendClient, job_id: str, *, actual_stages=False):
+def poll_job(api: GeoWorldBackendClient, job_id: str, *, actual_stages=False, reference=False):
     progress = None if actual_stages else st.progress(0)
     status = st.empty()
-    for index in range(120):
+    for index in range(2440 if reference else 120):
         job = api.get_job(job_id)
         status.info(job.progress)
         if progress is not None:
@@ -204,7 +205,8 @@ def submit_and_wait(api: GeoWorldBackendClient, request: JobCreateRequest) -> No
     st.session_state["last_submitted_prompt"] = request.prompt
     st.session_state["last_job_id"] = created.job_id
     st.session_state["last_correlation_id"] = created.correlation_id
-    st.session_state["last_job"] = (poll_job(api, created.job_id, actual_stages=True)
+    st.session_state["last_job"] = (poll_job(api, created.job_id, actual_stages=True, reference=True)
+                                   if request.mode_hint == "deepwave_reference" else poll_job(api, created.job_id, actual_stages=True)
                                    if request.mode_hint == "model_rtm" else poll_job(api, created.job_id))
 
 
@@ -584,11 +586,17 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
     images = sort_figure_artifacts(
         artifact for artifact in result.artifacts if artifact.kind == "image"
     )
+    if result.intent == "deepwave_reference":
+        order = {"velocity_acquisition.png": 0, "example_rtm_mask.jpg": 1, "example_rtm.jpg": 2}
+        images = sorted(images, key=lambda artifact: order.get(artifact.name.rsplit("/", 1)[-1], 3))
 
     render_result_models(api, job_id, result)
     if result.intent == "model_rtm":
         from geoworld_open.studio_rtm import render_rtm_summary
         render_rtm_summary(result, replay=bool(st.session_state.get("rtm_replay")))
+    elif result.intent == "deepwave_reference":
+        from geoworld_open.studio_reference import render_reference_summary
+        render_reference_summary(result)
     with st.expander("Job details"):
         st.write(f"**Job:** `{job_id}`")
         if correlation_id:
@@ -604,10 +612,14 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
     )
 
     with overview:
-        if result.intent == "model_rtm":
+        if result.intent == "deepwave_reference":
+            for image in images:
+                st.image(api.get_artifact(job_id, image.name), width="stretch" if options.fit_figures else options.figure_px)
+                st.caption(image.name.rsplit("/", 1)[-1])
+        elif result.intent == "model_rtm":
             for image in images[1:]:
                 st.image(api.get_artifact(job_id, image.name), width="stretch" if options.fit_figures else options.figure_px)
-        if images:
+        if images and result.intent != "deepwave_reference":
             try:
                 st.image(api.get_artifact(job_id, images[0].name), width="stretch" if options.fit_figures else options.figure_px)
             except GeoWorldClientError as exc:
@@ -730,6 +742,7 @@ def render_workspace(api: GeoWorldBackendClient) -> None:
     from geoworld_open.studio_rtm import local_rtm_ui_enabled, render_rtm_workspace
     workspaces = ["Ask or Build", "LAS Quicklook"]
     if local_rtm_ui_enabled(backend_url()):
+        workspaces.append("Deepwave reference")
         workspaces.append("Model + RTM")
     workspace = st.radio(
         "Workspace",
@@ -745,6 +758,10 @@ def render_workspace(api: GeoWorldBackendClient) -> None:
         return
     if workspace == "Model + RTM":
         render_rtm_workspace(api, submit_and_wait)
+        return
+    if workspace == "Deepwave reference":
+        from geoworld_open.studio_reference import render_reference_workspace
+        render_reference_workspace(api, submit_and_wait)
         return
 
     cols = st.columns(len(EXAMPLES))

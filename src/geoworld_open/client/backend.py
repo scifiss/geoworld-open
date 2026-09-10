@@ -113,6 +113,11 @@ class GeoWorldBackendClient:
         payload = self._json_request("GET", "/capabilities")
         return CapabilityCatalog.model_validate(payload)
 
+    def preview_reference(self, *, prompt=None, selection=None, project_id=None):
+        from geoworld_open.client.reference_experiment import ReferencePreview, ReferencePreviewRequest
+        request = ReferencePreviewRequest(prompt=prompt, selection=selection, project_id=project_id)
+        return ReferencePreview.model_validate(self._json_request("POST", "/references/preview", request.model_dump(mode="json")))
+
     def preview_geospec(
         self,
         *,

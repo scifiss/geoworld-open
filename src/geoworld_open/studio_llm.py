@@ -79,6 +79,12 @@ def result_model_lines(
     trace: object = None,
     preparation: str | None = None,
 ) -> list[str]:
+    if result.intent == "deepwave_reference":
+        evidence = result.reference.llm if result.reference is not None else None
+        line = (execution_model_line(evidence, purpose="Reference interpretation") if evidence else
+                "Reference interpretation: structured selection; no LLM call." if result.interpretation_mode == "structured_input" else
+                "Reference interpretation: model information not recorded.")
+        return [line, "Numerical execution: pinned Deepwave forward/RTM reference, not an LLM."]
     if result.intent == "las_quicklook" or result.mode == "las_quicklook_v1":
         return ["LAS analysis: deterministic computation, not an LLM."]
     if result.intent == "csv_analysis" or result.mode == "csv_summary":

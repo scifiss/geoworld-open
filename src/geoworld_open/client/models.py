@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from geoworld_open.client.rtm import RTMExperiment, RTMResult
+from geoworld_open.client.reference_experiment import ReferenceResult
 
 
 class UserProfile(BaseModel):
@@ -70,6 +71,8 @@ class JobCreateRequest(BaseModel):
     degraded_fallback_confirmed: bool = False
     rtm_experiment: RTMExperiment | None = None
     rtm_preparation_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+    reference_preparation_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+    reference_project_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 class JobCreateResponse(BaseModel):
@@ -153,6 +156,7 @@ class JobResult(BaseModel):
     output_coverage: dict[str, bool] = Field(default_factory=dict)
     provenance_summary: dict[str, Any] = Field(default_factory=dict)
     rtm: RTMResult | None = None
+    reference: ReferenceResult | None = None
 
     @model_validator(mode="after")
     def validate_grounding(self) -> "JobResult":
