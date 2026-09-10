@@ -114,6 +114,7 @@ def clear_session() -> None:
         "capability_catalog",
         "active_workspace",
         "las_form_signature",
+        "rtm_preview", "rtm_prompt", "rtm_structured", "rtm_input_signature", "rtm_replay_id",
     ):
         st.session_state.pop(key, None)
 
@@ -122,7 +123,7 @@ def clear_last_result() -> None:
     for key in (
         "last_job", "last_job_id", "last_correlation_id",
         "last_submitted_prompt", "clean_report",
-        "last_preparation_model", "last_result_models",
+        "last_preparation_model", "last_result_models", "rtm_replay",
     ):
         st.session_state.pop(key, None)
 
@@ -165,19 +166,22 @@ def render_auth() -> str | None:
     return None
 
 
-def poll_job(api: GeoWorldBackendClient, job_id: str):
-    progress = st.progress(0)
+def poll_job(api: GeoWorldBackendClient, job_id: str, *, actual_stages=False):
+    progress = None if actual_stages else st.progress(0)
     status = st.empty()
     for index in range(120):
         job = api.get_job(job_id)
         status.info(job.progress)
-        progress.progress(min(95, 5 + index % 90))
+        if progress is not None:
+            progress.progress(min(95, 5 + index % 90))
         if job.status in {"succeeded", "failed"}:
             if job.status == "succeeded":
-                progress.progress(100)
+                if progress is not None:
+                    progress.progress(100)
                 status.success("Analysis complete.")
             else:
-                progress.empty()
+                if progress is not None:
+                    progress.empty()
                 status.empty()
             return job
         time.sleep(3)
@@ -200,7 +204,8 @@ def submit_and_wait(api: GeoWorldBackendClient, request: JobCreateRequest) -> No
     st.session_state["last_submitted_prompt"] = request.prompt
     st.session_state["last_job_id"] = created.job_id
     st.session_state["last_correlation_id"] = created.correlation_id
-    st.session_state["last_job"] = poll_job(api, created.job_id)
+    st.session_state["last_job"] = (poll_job(api, created.job_id, actual_stages=True)
+                                   if request.mode_hint == "model_rtm" else poll_job(api, created.job_id))
 
 
 def load_json_artifact(
@@ -581,6 +586,9 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
     )
 
     render_result_models(api, job_id, result)
+    if result.intent == "model_rtm":
+        from geoworld_open.studio_rtm import render_rtm_summary
+        render_rtm_summary(result, replay=bool(st.session_state.get("rtm_replay")))
     with st.expander("Job details"):
         st.write(f"**Job:** `{job_id}`")
         if correlation_id:
@@ -596,6 +604,9 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
     )
 
     with overview:
+        if result.intent == "model_rtm":
+            for image in images[1:]:
+                st.image(api.get_artifact(job_id, image.name), width="stretch" if options.fit_figures else options.figure_px)
         if images:
             try:
                 st.image(api.get_artifact(job_id, images[0].name), width="stretch" if options.fit_figures else options.figure_px)
@@ -716,9 +727,13 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
 
 def render_workspace(api: GeoWorldBackendClient) -> None:
     """Render the existing workflow in a stable presentation-only container."""
+    from geoworld_open.studio_rtm import local_rtm_ui_enabled, render_rtm_workspace
+    workspaces = ["Ask or Build", "LAS Quicklook"]
+    if local_rtm_ui_enabled(backend_url()):
+        workspaces.append("Model + RTM")
     workspace = st.radio(
         "Workspace",
-        ["Ask or Build", "LAS Quicklook"],
+        workspaces,
         horizontal=True,
     )
     if st.session_state.get("active_workspace") != workspace:
@@ -727,6 +742,9 @@ def render_workspace(api: GeoWorldBackendClient) -> None:
 
     if workspace == "LAS Quicklook":
         render_las_workspace(api)
+        return
+    if workspace == "Model + RTM":
+        render_rtm_workspace(api, submit_and_wait)
         return
 
     cols = st.columns(len(EXAMPLES))
