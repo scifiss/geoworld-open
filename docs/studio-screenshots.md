@@ -37,6 +37,33 @@ and **Run model**. In **Model & Figures**, expand **Tables & scientific details*
 for the layer table and raw scientific summary. They are collapsed initially
 to keep the primary workflow compact.
 
+## Which AI model was used?
+
+The sidebar labels **Configured AI** and any **Backup AI**. These describe the
+service configuration, not proof of which model answered a particular question.
+
+After **Prepare model**, **Model preparation** shows the provider/model recorded
+by the backend for interpretation. Each completed result also shows model labels
+above **Job details**, visible whichever results tab you select:
+
+- **Answer generation** identifies the recorded Q&A model. **(backup used)**
+  means the backend reported provider failover for that call.
+- **Model preparation** identifies the interpretation model, separately from
+  the deterministic scientific computation. A preview's attribution is bound
+  to the submitted job; later edits or previews do not change old result labels.
+- LAS and CSV analysis are labelled as deterministic, not LLM computation.
+- Missing metadata says **model information not recorded**. Failed attempts
+  and unconfirmed legacy records are not described as completed generations.
+
+Model labels read existing authenticated preview/answer/trace metadata; they
+never invoke a model. Only display labels are cached in the user's session, and
+they are cleared with the result or on logout. A failed metadata download does
+not hide the answer and can be retried by refreshing. No raw error reasons,
+credentials, or trace payloads are added to these labels.
+
+Labels in the main page appear in PDF printing. The separate formatted HTML
+report remains a question/answer/figure/citation report, not a model-audit export.
+
 ## Save the actual page as PDF
 
 1. Select the results tab and expand the details you want to include.

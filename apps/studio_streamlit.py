@@ -24,9 +24,15 @@ from geoworld_open.client import (
     GeoWorldBackendClient,
     GeoWorldClientError,
     JobCreateRequest,
+    JobResult,
     LASQuicklookSettings,
 )
 from geoworld_open.client.backend import backend_url_from_environment
+from geoworld_open.studio_llm import (
+    configured_model_lines,
+    preparation_model_line,
+    result_model_lines,
+)
 from geoworld_open.studio_presentation import (
     DisplayOptions,
     ReportFigure,
@@ -116,6 +122,7 @@ def clear_last_result() -> None:
     for key in (
         "last_job", "last_job_id", "last_correlation_id",
         "last_submitted_prompt", "clean_report",
+        "last_preparation_model", "last_result_models",
     ):
         st.session_state.pop(key, None)
 
@@ -180,6 +187,15 @@ def poll_job(api: GeoWorldBackendClient, job_id: str):
 def submit_and_wait(api: GeoWorldBackendClient, request: JobCreateRequest) -> None:
     created = api.submit_job(request)
     clear_last_result()
+    preview = st.session_state.get("prepared_preview")
+    if (
+        request.geospec is not None
+        and isinstance(preview, dict)
+        and preview.get("geospec") == request.geospec
+    ):
+        # Bind the preview's evidence to this accepted job. Later edits, new
+        # previews, and changes to service configuration must not relabel it.
+        st.session_state["last_preparation_model"] = preparation_model_line(preview)
     # Bind presentation exports to the accepted request, not a later editor value.
     st.session_state["last_submitted_prompt"] = request.prompt
     st.session_state["last_job_id"] = created.job_id
@@ -504,6 +520,48 @@ def render_save_controls(api: GeoWorldBackendClient, options: DisplayOptions) ->
             )
 
 
+def render_result_models(api: GeoWorldBackendClient, job_id: str, result: JobResult) -> None:
+    cached = st.session_state.get("last_result_models")
+    if cached and cached[0] == job_id:
+        lines = cached[1]
+    else:
+        answer = trace = None
+        preparation = st.session_state.get("last_preparation_model")
+        fetch_failed = False
+        deterministic = result.intent in {"las_quicklook", "csv_analysis"} or result.mode in {
+            "las_quicklook_v1", "csv_summary",
+        }
+        if not deterministic and preparation is None:
+            # Existing protected artifacts, fetched with the current user's
+            # client. No extra LLM call and no shared cache of private results.
+            for basename in ("answer.json", "trace.json"):
+                artifact = artifact_named(result.artifacts, basename)
+                if artifact is None or (artifact.size_bytes or 0) > 500_000:
+                    continue
+                try:
+                    payload = api.get_artifact(job_id, artifact.name)
+                    if len(payload) > 500_000:
+                        continue
+                    metadata = decode_json_object(payload)
+                except (GeoWorldClientError, ValueError):
+                    fetch_failed = True
+                    continue
+                if basename == "answer.json":
+                    answer = metadata
+                    if isinstance(metadata.get("llm_usage"), dict):
+                        break
+                else:
+                    trace = metadata
+        lines = result_model_lines(result, answer=answer, trace=trace, preparation=preparation)
+        if fetch_failed:
+            lines.append("Some model details could not be loaded; refresh to retry.")
+        else:
+            # Cache only the allowlisted, human-readable labels for this job.
+            st.session_state["last_result_models"] = (job_id, lines)
+    for line in lines:
+        st.caption(line)
+
+
 def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
     job = st.session_state.get("last_job")
     job_id = st.session_state.get("last_job_id")
@@ -522,6 +580,7 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
         artifact for artifact in result.artifacts if artifact.kind == "image"
     )
 
+    render_result_models(api, job_id, result)
     with st.expander("Job details"):
         st.write(f"**Job:** `{job_id}`")
         if correlation_id:
@@ -782,6 +841,7 @@ def render_workspace(api: GeoWorldBackendClient) -> None:
                 f"Interpretation mode: {interpretation_mode or 'unknown'}"
                 + (" · degraded fallback" if preview.get("degraded") else "")
             )
+            st.caption(preparation_model_line(preview))
             with st.expander("Prepared model / assumptions"):
                 issues = preview.get("issues")
                 if isinstance(issues, list):
@@ -870,11 +930,16 @@ with st.sidebar:
         diagnostic = health_diagnostic(health)
         if diagnostic["overall_status"] == "available":
             st.success("GeoWorld is ready")
+        elif diagnostic["overall_status"] == "degraded":
+            st.warning("Primary AI is unavailable; a backup is configured.")
         else:
             st.warning(
                 "AI interpretation is temporarily unavailable. "
                 "LAS Quicklook and deterministic tools can still run."
             )
+        for line in configured_model_lines(health):
+            st.caption(line)
+        st.caption("Configuration only; each result shows the model recorded for that run.")
     except Exception:
         st.warning("GeoWorld service status is temporarily unavailable")
     if st.button("Log out"):

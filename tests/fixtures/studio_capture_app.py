@@ -9,6 +9,7 @@ import streamlit as st
 
 from geoworld_open.client import GeoWorldBackendClient, GeoWorldClientError
 from geoworld_open.client.models import JobResult, JobStatusResponse
+from geoworld_open.studio_llm import preparation_model_line
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -26,7 +27,11 @@ if "capture_fixture_initialized" not in st.session_state:
             "reason": "The request asks GeoWorld to build or simulate a supported geoscience model.",
         },
         "prepared_geospec": {"task": "build_model", "layers": [{"lithology": "shale"}, {"lithology": "sand"}]},
-        "prepared_preview": {"interpretation_mode": "llm_semantic_parser", "valid": True},
+        "prepared_preview": {
+            "interpretation_mode": "llm_semantic_parser", "valid": True,
+            "llm": {"provider": "openai", "model": "gpt-4.1-mini", "success": True,
+                    "fallback_reason": "synthetic test failover"},
+        },
         "last_job": JobStatusResponse(
             job_id="job-capture", status="succeeded", progress="complete",
             result=JobResult(
@@ -40,6 +45,7 @@ if "capture_fixture_initialized" not in st.session_state:
             ),
         ),
     })
+    st.session_state["last_preparation_model"] = preparation_model_line(st.session_state["prepared_preview"])
 st.session_state["fixture_run_count"] = st.session_state.get("fixture_run_count", 0) + 1
 st.html(f'<span id="fixture-run-count" style="display:none">{st.session_state["fixture_run_count"]}</span>')
 
@@ -52,7 +58,12 @@ def no_submission(*_args, **_kwargs):
     raise AssertionError("A screenshot must not submit a scientific job.")
 
 
-GeoWorldBackendClient.get_llm_health = lambda _self: {"reachable": True}
+GeoWorldBackendClient.get_llm_health = lambda _self: {
+    "reachable": True, "details": {
+        "primary": {"provider": "bedrock", "model": "us.amazon.nova-2-lite-v1:0"},
+        "fallback": {"provider": "openai", "model": "gpt-4.1-mini"},
+    },
+}
 GeoWorldBackendClient.get_artifact = lambda *_args: (ROOT / "docs/assets/flagship_world_demo.png").read_bytes()
 GeoWorldBackendClient.get_export = no_export
 GeoWorldBackendClient.submit_job = no_submission

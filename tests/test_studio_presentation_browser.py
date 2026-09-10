@@ -148,6 +148,11 @@ def test_normal_studio_layout_and_native_pdf_without_capture_mode(studio_server,
             page.goto(studio_server)
             page.get_by_role("tab", name="Model & Figures", exact=True).click()
             prompt = page.get_by_role("textbox", name="What would you like GeoWorld to do?")
+            # Streamlit can mount a textbox before its session value hydrates.
+            playwright.expect(prompt).to_have_value(
+                "Build shale, high-porosity sand, and shale. Add one dipping fault.\n"
+                "Generate Vp, Vs, density, impedance, reflectivity, synthetic seismic. List assumptions."
+            )
             original_prompt = prompt.input_value()
             workflow = page.locator(".st-key-studio_workflow")
             results = page.locator(".st-key-studio_results")
@@ -166,6 +171,12 @@ def test_normal_studio_layout_and_native_pdf_without_capture_mode(studio_server,
 
             columns(True)  # Auto responds to main content width; no screenshot mode needed.
             assert page.get_by_test_id("stSidebar").is_visible()
+            playwright.expect(page.get_by_test_id("stSidebar").get_by_text(
+                "Configured AI: Amazon Bedrock · us.amazon.nova-2-lite-v1:0", exact=True,
+            )).to_be_visible()
+            playwright.expect(results.get_by_text(
+                "Model preparation: OpenAI · gpt-4.1-mini (backup used)", exact=True,
+            )).to_be_visible()
             assert not page.get_by_test_id("stMain").get_by_role("button", name="Save page as PDF").count()
             assert not page.get_by_text("Screenshot / clean report", exact=True).count()
             assert not page.locator("#gw-studio-capture-toolbar").count()
