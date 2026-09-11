@@ -150,6 +150,8 @@ def build_clean_report(
         "general_model_uncited": "General model answer — no GeoWorld knowledge citations",
     }
     status = labels.get(result.grounding_status, "Scientific workflow result")
+    if result.mode == "grounding_validation_failed":
+        status = "Citation validation failed — no validated answer"
     citations = "".join(f"<li>{escape(line)}</li>" for line in human_citation_lines(result.citations))
     assumptions = "".join(f"<li>{escape(item)}</li>" for item in result.assumptions)
     image_html = "".join(

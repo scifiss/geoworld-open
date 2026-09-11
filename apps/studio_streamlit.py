@@ -191,9 +191,13 @@ def poll_job(api: GeoWorldBackendClient, job_id: str, *, actual_stages=False, re
             timing.caption("No completed-work counts reported yet; no percentage or ETA is inferred from elapsed time.")
         if job.status in {"succeeded", "failed"}:
             if job.status == "succeeded":
-                progress.progress(100, text="Job complete · results saved and validated")
+                progress.progress(100, text="Job finished · result saved")
                 timing.empty()
-                status.success("Analysis complete.")
+                if job.result and job.result.grounding_status == "evidence_insufficient":
+                    from geoworld_open.studio_qa import qa_outcome_message
+                    status.warning(qa_outcome_message(job.result))
+                else:
+                    status.success("Result ready.")
             else:
                 progress.empty()
                 timing.empty()
@@ -667,7 +671,8 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
             for citation_line in human_citation_lines(result.citations):
                 st.caption(citation_line)
         elif result.grounding_status == "evidence_insufficient":
-            st.info("GeoWorld did not find enough reviewed evidence for a grounded answer.")
+            from geoworld_open.studio_qa import qa_outcome_message
+            st.warning(qa_outcome_message(result))
         elif result.grounding_status == "general_model_uncited":
             st.warning("General model answer — not supported by a GeoWorld knowledge citation.")
         st.caption(f"Route: {result.intent}" + (f" · mode: {result.mode}" if result.mode else ""))
