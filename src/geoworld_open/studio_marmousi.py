@@ -66,7 +66,8 @@ def render_model_workspace(api, submit, *, prompt=None, auto_prepare=False):
             st.session_state["marmousi_interpretation"] = response
             st.session_state["marmousi_interpreted_prompt"] = prompt
             if response.selection and not response.unresolved:
-                base = api.preview_marmousi(MarmousiSelection(dataset=response.selection.dataset))
+                with st.spinner("Loading and verifying benchmark data; the first load may download its files…"):
+                    base = api.preview_marmousi(MarmousiSelection(dataset=response.selection.dataset))
                 st.session_state["marmousi_base"] = base
                 _set_controls(response.selection, base.dataset_extent)
         except GeoWorldClientError as exc:
@@ -151,7 +152,14 @@ def render_model_workspace(api, submit, *, prompt=None, auto_prepare=False):
                 disabled=not enabled, key="marmousi_" + key)
             if enabled:
                 overrides[key] = value
-    prop = st.selectbox("Display property", ["vp", "vs", "density", "porosity"], key="marmousi_property")
+    available = list(dict.fromkeys([*base.fields, *[
+        {"vp_m_s": "vp", "vs_m_s": "vs", "density_kg_m3": "density", "porosity_fraction": "porosity"}[key]
+        for key in overrides
+    ]]))
+    if st.session_state.get("marmousi_property") not in available:
+        st.info("That property is not supplied by this benchmark. Choose an available field or enable an explicit property assumption above.")
+        st.session_state["marmousi_property"] = "vp"
+    prop = st.selectbox("Display property", available, key="marmousi_property")
     try:
         crop = ModelCrop(**bounds)
         selection = MarmousiSelection(dataset=dataset, crop=None if crop == extent else crop,

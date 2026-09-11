@@ -45,8 +45,15 @@ def render_build(api, submit, prompt, *, prepare=False, prepare_only=False):
 
 def render_request(api, submit, render_las):
     prompt = st.text_area("What would you like GeoWorld to do?", key="prompt", height=130,
-        placeholder="Show Marmousi 2, explain seismic imaging, or reproduce the Deepwave Marmousi 1 RTM reference…")
+        placeholder="Explain seismic imaging, build shale–sand–shale, or show Marmousi 1…")
     st.caption("Describe the task here. GeoWorld selects the tool; you review the preparation before a simulation runs.")
+    with st.expander("What can I demo here?"):
+        st.markdown("**Questions:** Explain what a seismic survey can and cannot tell us.\n\n"
+                    "**Simple model:** Build shale, high-porosity sand, and shale with one dipping fault. Generate Vp, Vs, density, impedance and reflectivity.\n\n"
+                    "**Benchmark preview:** Show Marmousi 1. Inspect Vp or density and crop in metres; this does not run RTM.\n\n"
+                    "**Well logs:** Inspect my uploaded LAS logs. Use GW-DEMO-01 and GW-DEMO-02.\n\n"
+                    "Marmousi 2 and Deepwave numerical runs require the enabled local backend and installed data. "
+                    "The first Marmousi 1 preview may take a few seconds to download and verify its published files.")
     if st.button("Interpret request", type="primary", disabled=not prompt.strip()):
         for key in ("studio_decision", "studio_prepare_attempted", "studio_request_error", "prepared_preview",
                     "reference_preview", "rtm_preview", "marmousi_interpretation", "marmousi_base", "marmousi_preview",

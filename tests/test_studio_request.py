@@ -50,6 +50,31 @@ def test_default_is_one_prompt_no_workspace_choices_or_dataset_default(app):
     assert not any(s.label == "Benchmark dataset" for s in app.selectbox)
 
 
+def test_hosted_marmousi1_shows_plot_and_only_available_properties(app, monkeypatch):
+    monkeypatch.setenv("GEOWORLD_BACKEND_URL", "https://backend.example.test")
+    monkeypatch.delenv("GEOWORLD_STUDIO_LOCAL_RTM", raising=False)
+    monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio", lambda _self, prompt:
+        StudioDecision(interpretation=StudioIntent(operation="preview", dataset="marmousi1"),
+            route="marmousi_model", message="Preview Marmousi 1",
+            llm={"provider": "bedrock", "model": "test-nova", "success": True}))
+    monkeypatch.setattr(GeoWorldBackendClient, "interpret_marmousi", lambda _self, prompt:
+        MarmousiInterpretation(selection=MarmousiSelection(dataset="marmousi1"), unresolved=[]))
+    def preview(_self, selection):
+        result = make_preview(selection)
+        result.fields = ["vp", "density"]
+        return result
+    monkeypatch.setattr(GeoWorldBackendClient, "preview_marmousi", preview)
+    app.run(timeout=20)
+    app.text_area(key="prompt").set_value("show Marmousi 1").run()
+    button(app, "Interpret request").click().run(timeout=20)
+    assert not app.exception
+    assert len(app.get("plotly_chart")) == 1
+    assert app.selectbox(key="marmousi_property").options == ["vp", "density"]
+    assert not any(b.label in {"Run verified reference", "Run model"} for b in app.button)
+    assert button(app, "Save model preview & provenance")
+    assert any("What can I demo here?" == e.label for e in app.expander)
+
+
 def test_marmousi2_interpretation_drives_preview_and_rerun_is_free(app, monkeypatch):
     calls = []
     def route(_self, prompt):
