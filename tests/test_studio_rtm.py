@@ -23,7 +23,10 @@ def test_portable_roundtrip_and_no_heavy_dependency():
     request = JobCreateRequest(prompt="An acoustic model", mode_hint="model_rtm", rtm_experiment=experiment())
     assert JobCreateRequest.model_validate_json(request.model_dump_json()) == request
     root = Path(__file__).resolve().parents[1]
-    import tomllib
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # Python 3.10
+        import tomli as tomllib
     project = tomllib.loads((root / "pyproject.toml").read_text())["project"]
     assert not any("torch" in d or "deepwave" in d for d in project["dependencies"])
 
