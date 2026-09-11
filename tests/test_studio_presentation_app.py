@@ -48,6 +48,76 @@ def button(app, label):
     return next(item for item in app.button if item.label == label)
 
 
+def test_manual_result_survives_stale_unified_request_and_export(app, monkeypatch):
+    """A previous normal request must not hide an existing manual result."""
+    app.session_state["studio_decision"] = {"route": "marmousi_model"}
+    app.session_state["studio_request_prompt"] = "Show Marmousi 1."
+    fetched = []
+
+    def artifact(_api, job_id, name):
+        fetched.append((job_id, name))
+        return (ROOT / "docs/assets/flagship_world_demo.png").read_bytes()
+
+    monkeypatch.setattr(GeoWorldBackendClient, "get_artifact", artifact)
+    monkeypatch.setattr(GeoWorldBackendClient, "submit_job", lambda *_: pytest.fail("No rerun needed"))
+    app.run(timeout=20)
+    assert not app.exception
+    assert any(s.value == "GeoWorld result" for s in app.subheader)
+    assert fetched.count(("job-report", "summary.png")) >= 2  # Overview and Model & Figures
+    button(app, "Prepare HTML report").click().run(timeout=20)
+    assert not app.exception
+    assert "data:image/" in app.session_state["clean_report"][2]
+    assert any(s.value == "GeoWorld result" for s in app.subheader)
+
+    # Preserve the unrelated-result guard when returning to the normal workflow.
+    app.checkbox(key="manual_tools").uncheck().run(timeout=20)
+    assert not app.exception
+    assert not any(s.value == "GeoWorld result" for s in app.subheader)
+    assert app.session_state["last_job_id"] == "job-report"
+    app.checkbox(key="manual_tools").check().run(timeout=20)
+    assert not app.exception
+    assert any(s.value == "GeoWorld result" for s in app.subheader)
+
+
+def test_manual_build_shows_figures_immediately_after_completion(app, monkeypatch):
+    app.session_state["studio_decision"] = {"route": "marmousi_model"}
+    app.session_state["studio_request_prompt"] = "Show Marmousi 1."
+    monkeypatch.setattr(GeoWorldBackendClient, "preview_geospec", lambda *_args, **_kwargs: {
+        "valid": True, "geospec": {"assumptions": ["Review layer defaults"]},
+        "interpretation_mode": "llm_semantic_parser",
+    })
+    submitted = []
+
+    def submit(_api, request):
+        submitted.append(request)
+        return JobCreateResponse(job_id="new-model", status="queued", progress="queued")
+
+    monkeypatch.setattr(GeoWorldBackendClient, "submit_job", submit)
+    monkeypatch.setattr(GeoWorldBackendClient, "get_job", lambda *_: JobStatusResponse(
+        job_id="new-model", status="succeeded", progress="complete", result=JobResult(
+            intent="build_model", reason="test", answer="New layered model ready.",
+            artifacts=[{"name": "summary.png", "kind": "image", "media_type": "image/png"}],
+        ),
+    ))
+    fetched = []
+
+    def artifact(_api, job_id, name):
+        fetched.append((job_id, name))
+        return (ROOT / "docs/assets/flagship_world_demo.png").read_bytes()
+
+    monkeypatch.setattr(GeoWorldBackendClient, "get_artifact", artifact)
+    app.run(timeout=20)
+    next(r for r in app.radio if r.label == "Intent").set_value("Build Model").run()
+    button(app, "Prepare model").click().run(timeout=20)
+    button(app, "Run model").click().run(timeout=20)
+    assert not app.exception
+    assert len(submitted) == 1 and submitted[0].mode_hint == "build_model"
+    assert app.session_state["last_job_id"] == "new-model"
+    assert any(s.value == "GeoWorld result" for s in app.subheader)
+    assert any("New layered model ready." in m.value for m in app.markdown)
+    assert fetched.count(("new-model", "summary.png")) >= 2
+
+
 def test_widgets_change_display_without_resubmitting_and_report_uses_original_prompt(app, monkeypatch):
     def forbidden(*_args, **_kwargs):
         pytest.fail("display controls must not submit jobs")

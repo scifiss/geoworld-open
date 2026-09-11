@@ -605,7 +605,11 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
         return
     active_prompt = st.session_state.get("studio_request_prompt")
     if (
-        st.session_state.get("studio_decision") is not None
+        # The normal request's stale-result guard does not own manual runs.
+        # Keep existing results visible in manual tools without changing jobs
+        # or discarding the normal workflow's interpretation on a mode switch.
+        not st.session_state.get("manual_tools", False)
+        and st.session_state.get("studio_decision") is not None
         and st.session_state.get("last_result_source") != "saved_run"
         and active_prompt
         and st.session_state.get("last_submitted_prompt") != active_prompt
