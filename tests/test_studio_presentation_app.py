@@ -48,6 +48,20 @@ def button(app, label):
     return next(item for item in app.button if item.label == label)
 
 
+def test_co2_preset_supplies_layers_and_resets_old_preparation(app):
+    app.run(timeout=20)
+    app.session_state["prepared_geospec"] = {"old_model": True}
+    app.session_state["prepared_preview"] = {"valid": True}
+    button(app, "CO2 monitoring").click().run(timeout=20)
+    assert not app.exception
+    assert app.text_area(key="prompt").value == (
+        "Build shale, high-porosity sand, and shale. Add a CO2 plume to the sand layer. "
+        "Show saturation, Vp, Vs, density, synthetic seismic, and assumptions."
+    )
+    assert "prepared_geospec" not in app.session_state
+    assert "prepared_preview" not in app.session_state
+
+
 def test_manual_result_survives_stale_unified_request_and_export(app, monkeypatch):
     """A previous normal request must not hide an existing manual result."""
     app.session_state["studio_decision"] = {"route": "marmousi_model"}

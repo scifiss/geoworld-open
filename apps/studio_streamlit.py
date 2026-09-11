@@ -72,8 +72,8 @@ EXAMPLES = {
         "List assumptions."
     ),
     "CO2 monitoring": (
-        "Build a reservoir model with a CO2 plume. Show saturation, elastic response, synthetic seismic, "
-        "and assumptions."
+        "Build shale, high-porosity sand, and shale. Add a CO2 plume to the sand layer. "
+        "Show saturation, Vp, Vs, density, synthetic seismic, and assumptions."
     ),
 }
 
