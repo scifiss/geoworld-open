@@ -53,6 +53,36 @@ class RTMExperiment(RTMContract):
     imaging: AdjointImaging = Field(default_factory=AdjointImaging)
 
 
+class RTMModelPreview(RTMContract):
+    """Bounded reviewed model state; the acoustic solver consumes only Vp."""
+    shape_zx: list[int] = Field(min_length=2, max_length=2)
+    x_m: list[float]
+    z_m: list[float]
+    vp_zx: list[list[float]]
+    vs_zx: list[list[float]]
+    density_zx: list[list[float]]
+    units: dict[str, str]
+    ranges: dict[str, list[float]]
+    vp_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    property_source: Literal["derived_from_lithology_and_porosity"] = "derived_from_lithology_and_porosity"
+    solver_fields: list[Literal["vp"]] = Field(default_factory=lambda: ["vp"])
+
+    @model_validator(mode="after")
+    def validate_grid(self):
+        nz, nx = self.shape_zx
+        if nz < 2 or nx < 2 or len(self.x_m) != nx or len(self.z_m) != nz:
+            raise ValueError("Model preview coordinates must match shape_zx.")
+        for field in ("vp", "vs", "density"):
+            values = getattr(self, field + "_zx")
+            if len(values) != nz or any(len(row) != nx for row in values):
+                raise ValueError(field + " preview must match shape_zx.")
+            if field not in self.units or field not in self.ranges or len(self.ranges[field]) != 2:
+                raise ValueError(field + " units and range are required.")
+        if self.solver_fields != ["vp"]:
+            raise ValueError("This acoustic workflow can approve only Vp for the solver.")
+        return self
+
+
 class RTMPreviewRequest(RTMContract):
     prompt: str | None = Field(default=None, min_length=1, max_length=8000)
     experiment: RTMExperiment | None = None
@@ -70,6 +100,7 @@ class RTMPreview(RTMContract):
     assumptions: list[str]
     llm: dict[str, Any] | None = None
     preparation_id: str | None = None
+    model_preview: RTMModelPreview | None = None
 
 
 class RTMResult(RTMContract):

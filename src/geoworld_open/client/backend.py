@@ -113,9 +113,28 @@ class GeoWorldBackendClient:
         payload = self._json_request("GET", "/capabilities")
         return CapabilityCatalog.model_validate(payload)
 
-    def preview_reference(self, *, prompt=None, selection=None, project_id=None):
+    def interpret_studio(self, prompt, project_id=None):
+        from geoworld_open.client.studio_request import StudioRequest, StudioDecision
+        request = StudioRequest(prompt=prompt, project_id=project_id)
+        return StudioDecision.model_validate(self._json_request("POST", "/intent/interpret", request.model_dump(mode="json")))
+
+    def get_reference_compute(self):
+        from geoworld_open.client.reference_experiment import ReferenceCompute
+        return ReferenceCompute.model_validate(self._json_request("GET", "/references/compute"))
+
+    def preview_marmousi(self, selection, project_id=None):
+        from geoworld_open.client.marmousi import MarmousiPreview, MarmousiPreviewRequest
+        request = MarmousiPreviewRequest(selection=selection, project_id=project_id)
+        return MarmousiPreview.model_validate(self._json_request("POST", "/models/marmousi/preview", request.model_dump(mode="json")))
+
+    def interpret_marmousi(self, prompt, project_id=None):
+        from geoworld_open.client.marmousi import MarmousiInterpretation, MarmousiInterpretRequest
+        request = MarmousiInterpretRequest(prompt=prompt, project_id=project_id)
+        return MarmousiInterpretation.model_validate(self._json_request("POST", "/models/marmousi/interpret", request.model_dump(mode="json")))
+
+    def preview_reference(self, *, prompt=None, selection=None, project_id=None, device="cpu"):
         from geoworld_open.client.reference_experiment import ReferencePreview, ReferencePreviewRequest
-        request = ReferencePreviewRequest(prompt=prompt, selection=selection, project_id=project_id)
+        request = ReferencePreviewRequest(prompt=prompt, selection=selection, project_id=project_id, device=device)
         return ReferencePreview.model_validate(self._json_request("POST", "/references/preview", request.model_dump(mode="json")))
 
     def preview_geospec(

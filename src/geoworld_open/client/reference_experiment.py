@@ -34,6 +34,7 @@ class ReferencePreviewRequest(ReferenceContract):
     prompt: str | None = Field(default=None, min_length=1, max_length=8000)
     selection: ReferenceSelection | None = None
     project_id: str | None = Field(default=None, min_length=1, max_length=128)
+    device: Literal["cpu", "cuda"] = "cpu"
 
     @model_validator(mode="after")
     def exactly_one(self):
@@ -57,6 +58,7 @@ class ReferencePreview(ReferenceContract):
     interpretation_mode: Literal["llm_reference_selection", "structured_input"]
     llm: dict[str, Any] | None = None
     preparation_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+    device: Literal["cpu", "cuda"] = "cpu"
 
 
 class ReferenceResult(ReferenceContract):
@@ -69,3 +71,14 @@ class ReferenceResult(ReferenceContract):
     reports: list[str]
     interpretation_mode: str
     llm: dict[str, Any] | None = None
+    device: Literal["cpu", "cuda"] = "cpu"
+
+
+class ReferenceCompute(ReferenceContract):
+    execution_location: Literal["backend"] = "backend"
+    cuda_usable: bool = False
+    gpu_name: str | None = None
+    free_gpu_gib: float | None = None
+    required_free_gpu_gib: float = 8.0
+    reference_gpu_allowed: bool = False
+    explanation: str

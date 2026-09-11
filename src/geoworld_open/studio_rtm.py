@@ -19,12 +19,29 @@ def local_rtm_ui_enabled(url):
             and urlparse(url or "").hostname in {"localhost", "127.0.0.1", "::1"})
 
 
-def render_rtm_workspace(api, submit):
+def model_preview_figure(model, field):
+    import plotly.graph_objects as go
+    values = getattr(model, field + "_zx")
+    unit = model.units[field]
+    figure = go.Figure(go.Heatmap(x=model.x_m, y=model.z_m, z=values, colorscale="Viridis",
+        colorbar={"title": unit}, hovertemplate="x=%{x:.1f} m<br>depth=%{y:.1f} m<br>value=%{z:.1f}<extra></extra>"))
+    label = {"vp": "Vp", "vs": "Vs", "density": "Density"}[field]
+    figure.update_layout(height=390, margin={"l": 55, "r": 15, "t": 35, "b": 45},
+        title=label + " · approved model preview", xaxis_title="x (m)", yaxis_title="Depth (m)")
+    figure.update_xaxes(constrain="domain")
+    figure.update_yaxes(autorange="reversed", scaleanchor="x", scaleratio=1, constrain="domain")
+    return figure
+
+
+def render_rtm_workspace(api, submit, *, prompt=None, auto_prepare=False, prepare_only=False):
     st.subheader("Model + RTM · experimental")
     st.caption("Local CPU demonstration. Genuine time-domain acoustic shots and one adjoint image; no elastic AVO or velocity inversion.")
-    input_mode = st.radio("Experiment input", ["Natural language", "Structured input / debugging"], horizontal=True)
+    input_mode = "Natural language"
+    if prompt is None:
+        input_mode = st.radio("Experiment input", ["Natural language", "Structured input / debugging"], horizontal=True)
     default = "Build three layers: shale, high-porosity sand, shale, with one planar fault. Generate acoustic shots and an RTM image."
-    prompt = st.text_area("Describe the acoustic experiment", value=default, key="rtm_prompt", height=130)
+    if prompt is None:
+        prompt = st.text_area("Describe the acoustic experiment", value=default, key="rtm_prompt", height=130)
     structured = None
     if input_mode != "Natural language":
         st.info("Structured input does not call an LLM. It is not evidence of live natural-language interpretation.")
@@ -37,9 +54,11 @@ def render_rtm_workspace(api, submit):
     signature = (input_mode, prompt, structured.model_dump_json() if structured else None)
     if st.session_state.get("rtm_input_signature") != signature:
         st.session_state.pop("rtm_preview", None)
+        st.session_state.pop("rtm_model_approved", None)
         st.session_state["rtm_input_signature"] = signature
-    if st.button("Prepare experiment", type="primary", disabled=not prompt.strip() or (input_mode != "Natural language" and structured is None)):
+    if st.button("Prepare experiment", type="primary", disabled=not prompt.strip() or (input_mode != "Natural language" and structured is None)) or auto_prepare:
         st.session_state.pop("rtm_preview", None)
+        st.session_state.pop("rtm_model_approved", None)
         try:
             with st.spinner("Interpreting and validating the bounded experiment…"):
                 preview = api.preview_rtm(prompt=prompt if structured is None else None, experiment=structured)
@@ -56,13 +75,30 @@ def render_rtm_workspace(api, submit):
                  + f" · {len(geology.get('faults', []))} fault(s)")
         st.caption(execution_model_line(preview.llm, purpose="Experiment interpretation") if preview.llm
                    else "Experiment interpretation: structured input; no LLM call.")
+        if preview.model_preview is not None:
+            model = preview.model_preview
+            st.markdown("#### Review the model before running")
+            st.caption("Vp, Vs and density are deterministically derived from the interpreted lithology and porosity. Deepwave's constant-density acoustic solver uses Vp only; Vs and density are displayed context, not RTM inputs.")
+            tabs = st.tabs(["Vp · solver input", "Vs · context", "Density · context"])
+            for tab, field in zip(tabs, ["vp", "vs", "density"]):
+                with tab:
+                    low, high = model.ranges[field]
+                    st.caption(f"Range: {low:g}–{high:g} {model.units[field]}")
+                    st.plotly_chart(model_preview_figure(model, field), key="rtm_model_" + field, width="stretch")
+            st.caption("Approved Vp identity: " + model.vp_sha256[:16] + "… The completed run is rejected if its rebuilt Vp does not match.")
         with st.expander("Prepared experiment / assumptions", expanded=True):
             st.write("Migration uses smoothed synthetic truth. This is an idealized model, not a recovered earth model.")
             for assumption in preview.assumptions:
                 st.caption(assumption)
         with st.expander("Resolved request"):
             st.code(experiment.model_dump_json(indent=2), language="json")
-        if st.button("Run experiment"):
+        if prepare_only:
+            st.info("Prepared only, as requested. Submit a new request to run it.")
+        if preview.model_preview is None:
+            st.warning("This backend did not return a reviewable model. Restart it with the current code before running.")
+        approved = st.checkbox("I reviewed this model and want to use its Vp for acoustic forward modelling and RTM", key="rtm_model_approved",
+                               disabled=preview.model_preview is None)
+        if st.button("Run approved model", disabled=prepare_only or not approved or preview.model_preview is None):
             try:
                 submit(api, JobCreateRequest(prompt=prompt, mode_hint="model_rtm", rtm_experiment=experiment,
                                             rtm_preparation_id=preview.preparation_id))

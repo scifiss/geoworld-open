@@ -30,6 +30,7 @@ def app(monkeypatch):
     at.session_state["access_token"] = "test-token"
     at.session_state["user_email"] = "private-account@example.test"
     at.session_state["active_workspace"] = "Ask or Build"
+    at.session_state["manual_tools"] = True  # Explicit compatibility UI tests.
     result = JobResult(
         intent="build_model", reason="test", answer="A synthetic model was generated.",
         artifacts=[{"name": "summary.png", "kind": "image", "media_type": "image/png"}],

@@ -27,6 +27,39 @@ pytestmark = pytest.mark.skipif(
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_html_export_download_and_unified_view_preserve_result(studio_server, tmp_path):
+    playwright = pytest.importorskip("playwright.sync_api")
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1440, "height": 1000})
+        page.goto(studio_server)
+        page.get_by_text("Offline display test — no model has been run.", exact=True).wait_for()
+        page.get_by_text("Save & export", exact=True).click()
+        page.get_by_role("button", name="Prepare HTML report", exact=True).click()
+        download = page.get_by_role("button", name="Download HTML report", exact=True)
+        download.wait_for()
+        count = page.locator("#fixture-run-count").inner_text()
+        with page.expect_download() as event:
+            download.click()
+        path = tmp_path / "browser-report.html"
+        event.value.save_as(path)
+        assert "Offline display test" in path.read_text()
+        assert "Build shale, high-porosity sand" in path.read_text()
+        assert "private-account@example.test" not in path.read_text()
+        assert page.locator("#fixture-run-count").inner_text() == count
+        page.get_by_text("Advanced: manual tools / debugging", exact=True).click()
+        # Streamlit's styled checkbox wraps a visually hidden input. Click the
+        # visible associated label, as a user does, rather than its input box.
+        page.get_by_text("Use manual tools", exact=True).click()
+        page.get_by_role("button", name="Interpret request", exact=True).wait_for()
+        # Streamlit briefly retains stale elements until the rerun completes.
+        page.get_by_role("button", name="Determine route", exact=True).wait_for(state="hidden")
+        assert page.get_by_text("Offline display test — no model has been run.", exact=True).is_visible()
+        assert not page.get_by_text("Workspace", exact=True).is_visible()
+        page.screenshot(path=str(tmp_path / "unified-studio-export.png"), full_page=True)
+        browser.close()
+
+
 def test_clean_report_browser_layout_zoom_capture_and_print(tmp_path):
     playwright = pytest.importorskip("playwright.sync_api")
     html = build_clean_report(

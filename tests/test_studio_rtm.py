@@ -1,13 +1,22 @@
 """Portable contract and Studio control regressions; no numerical/private imports."""
 from pathlib import Path
 import pytest
-from geoworld_open.client.rtm import RTMExperiment, RTMPreview
+from geoworld_open.client.rtm import RTMExperiment, RTMModelPreview, RTMPreview
 from geoworld_open.client.models import JobCreateRequest, JobResult
 
 
 def experiment():
     return RTMExperiment(geospec={"grid": {"nz": 64, "nx": 96, "dx_m": 10, "dz_m": 10},
         "geology": {"layers": [{"lithology": "shale"}, {"lithology": "sand"}], "faults": []}})
+
+
+def model_preview():
+    nz, nx = 64, 96
+    grid = lambda value: [[value] * nx for _ in range(nz)]
+    return RTMModelPreview(shape_zx=[nz, nx], x_m=[5 + 10*x for x in range(nx)], z_m=[5 + 10*z for z in range(nz)],
+        vp_zx=grid(2500), vs_zx=grid(1400), density_zx=grid(2200),
+        units={"vp": "m/s", "vs": "m/s", "density": "kg/m³"},
+        ranges={"vp": [2500, 2500], "vs": [1400, 1400], "density": [2200, 2200]}, vp_sha256="a" * 64)
 
 
 def test_portable_roundtrip_and_no_heavy_dependency():
@@ -17,6 +26,17 @@ def test_portable_roundtrip_and_no_heavy_dependency():
     import tomllib
     project = tomllib.loads((root / "pyproject.toml").read_text())["project"]
     assert not any("torch" in d or "deepwave" in d for d in project["dependencies"])
+
+
+def test_model_preview_contract_rejects_misalignment_and_non_vp_solver():
+    payload = model_preview().model_dump(mode="json")
+    payload["density_zx"][0].pop()
+    with pytest.raises(ValueError, match="match shape"):
+        RTMModelPreview.model_validate(payload)
+    payload = model_preview().model_dump(mode="json")
+    payload["solver_fields"] = ["vp", "vs"]
+    with pytest.raises(ValueError):
+        RTMModelPreview.model_validate(payload)
 
 
 @pytest.mark.parametrize("payload", [{"shots": 5}, {"nt": 10000}, {"coordinate_order": "x,z"}, {"distance_unit": "ft"}, {"frequency_hz": float("nan")}])
@@ -57,7 +77,8 @@ def test_studio_prepare_invalidates_on_edits_and_does_not_legacy_route(monkeypat
     calls = []
     def preview(self, **kwargs):
         calls.append(kwargs)
-        return RTMPreview(experiment=experiment(), interpretation_mode="structured_input", assumptions=["Synthetic only"])
+        return RTMPreview(experiment=experiment(), interpretation_mode="structured_input", assumptions=["Synthetic only"],
+                          preparation_id="b" * 32, model_preview=model_preview())
     monkeypatch.setattr(GeoWorldBackendClient, "preview_rtm", preview)
     def forbidden(*args, **kwargs):
         pytest.fail("RTM UI must not call legacy intent/GeoSpec preview")
@@ -65,11 +86,16 @@ def test_studio_prepare_invalidates_on_edits_and_does_not_legacy_route(monkeypat
     monkeypatch.setattr(GeoWorldBackendClient, "preview_geospec", forbidden)
     at = AppTest.from_file(str(root / "apps/studio_streamlit.py"))
     at.session_state["access_token"] = "local-test-only"
+    at.session_state["manual_tools"] = True
     at.session_state["user_email"] = "local@example.test"
     at.run(timeout=20)
     next(r for r in at.radio if r.label == "Workspace").set_value("Model + RTM").run(timeout=20)
     next(b for b in at.button if b.label == "Prepare experiment").click().run(timeout=20)
     assert not at.exception and len(calls) == 1
-    assert any(b.label == "Run experiment" for b in at.button)
+    run = next(b for b in at.button if b.label == "Run approved model")
+    assert run.disabled
+    assert {tab.label for tab in at.tabs} >= {"Vp · solver input", "Vs · context", "Density · context"}
+    next(c for c in at.checkbox if c.label.startswith("I reviewed this model")).check().run(timeout=20)
+    assert not next(b for b in at.button if b.label == "Run approved model").disabled
     at.text_area(key="rtm_prompt").set_value("A changed request").run()
-    assert not any(b.label == "Run experiment" for b in at.button)
+    assert not any(b.label == "Run approved model" for b in at.button)

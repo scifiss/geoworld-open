@@ -31,7 +31,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-demo = ["streamlit>=1.63"]
+demo = ["streamlit>=1.63", "plotly>=5.24,<7"]
 dev = ["pytest>=8"]
 
 [project.urls]

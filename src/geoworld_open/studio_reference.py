@@ -9,23 +9,39 @@ from geoworld_open.client.reference_experiment import ReferenceSelection
 from geoworld_open.studio_llm import execution_model_line
 
 
-def render_reference_workspace(api, submit):
+def render_reference_workspace(api, submit, *, prompt=None, auto_prepare=False):
     st.subheader("Deepwave · Marmousi 1 reference")
-    st.caption("Official forward modelling → tapered direct-arrival mute → batched, one-update RTM. Experimental custom-model RTM remains in its separate workspace.")
-    prompt = st.text_area("Describe the reference experiment", value="Reproduce the official Deepwave Marmousi RTM example using its documented settings.", key="reference_prompt", height=110)
-    with st.expander("Advanced: structured selection / debugging"):
-        debug = st.checkbox("Use a structured reference selection (no LLM)", key="reference_debug")
-        action = st.selectbox("Structured action", ["prepare", "run"], key="reference_action", disabled=not debug)
-        st.caption("The reference supplies geometry and numerical defaults. This control cannot introduce arbitrary models or coordinates.")
-    signature = (prompt, debug, action)
+    st.caption("Reference forward data → tapered direct-arrival mute → batched, one-update RTM.")
+    debug, action = False, "prepare"
+    if prompt is None:
+        prompt = st.text_area("Describe the reference experiment", value="Reproduce the official Deepwave Marmousi RTM example using its documented settings.", key="reference_prompt", height=110)
+        with st.expander("Advanced: structured selection / debugging"):
+            debug = st.checkbox("Use a structured reference selection (no LLM)", key="reference_debug")
+            action = st.selectbox("Structured action", ["prepare", "run"], key="reference_action", disabled=not debug)
+            st.caption("The reference supplies geometry and numerical defaults. This control cannot introduce arbitrary models or coordinates.")
+    st.caption("Calculation runs on the backend computer—not in your browser. GPU choice does not change the reference geometry or physics.")
+    if st.button("Check backend CPU / GPU"):
+        try:
+            st.session_state["reference_compute"] = api.get_reference_compute()
+        except GeoWorldClientError as exc:
+            st.error(str(exc))
+    compute = st.session_state.get("reference_compute")
+    if compute:
+        st.caption(compute.explanation)
+        if compute.gpu_name:
+            st.write(f"{compute.gpu_name} · {compute.free_gpu_gib:.1f} GiB free")
+    use_gpu = st.checkbox("Use backend GPU (CUDA)", key="reference_use_gpu",
+                          disabled=not (compute and compute.reference_gpu_allowed))
+    device = "cuda" if use_gpu and compute and compute.reference_gpu_allowed else "cpu"
+    signature = (prompt, debug, action, device)
     if st.session_state.get("reference_signature") != signature:
         st.session_state.pop("reference_preview", None)
         st.session_state["reference_signature"] = signature
-    if st.button("Interpret & validate reference", type="primary", disabled=not prompt.strip()):
+    if st.button("Interpret & validate reference", type="primary", disabled=not prompt.strip()) or auto_prepare:
         st.session_state.pop("reference_preview", None)
         try:
             with st.spinner("Resolving the pinned reference; no numerical execution…"):
-                preview = api.preview_reference(selection=ReferenceSelection(action=action) if debug else None, prompt=None if debug else prompt)
+                preview = api.preview_reference(selection=ReferenceSelection(action=action) if debug else None, prompt=None if debug else prompt, device=device)
             st.session_state["reference_preview"] = preview
         except GeoWorldClientError as exc:
             st.error(str(exc))
@@ -38,6 +54,7 @@ def render_reference_workspace(api, submit):
     st.caption(execution_model_line(preview.llm, purpose="Request interpretation") if preview.llm
                else "Request interpretation: structured selection; no LLM call.")
     st.caption("Numerical execution: Deepwave 0.0.26. The LLM does not calculate wavefields or choose acquisition coordinates.")
+    st.caption("Selected execution device: " + preview.device.upper())
     for conflict in preview.unresolved_conflicts:
         st.warning(conflict)
     for suggestion in preview.suggestions:
@@ -67,6 +84,7 @@ def render_reference_summary(result):
         return
     st.success(f"Unchanged reference RTM recomputed · {evidence.runtime_seconds / 60:.1f} minutes · raw comparison passed")
     st.caption(evidence.numerical_executor)
+    st.caption("Recorded execution device: " + evidence.device.upper())
     st.caption(execution_model_line(evidence.llm, purpose="Request interpretation") if evidence.llm
                else "Structured selection; no LLM interpretation occurred for this run.")
     st.caption("Forward observations reused from the checksummed standalone reference. This run recomputed RTM, not forward data or FWI. Display clipping is the upstream 5–95% convention; raw arrays are preserved.")

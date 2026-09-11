@@ -103,6 +103,9 @@ def client(token: str | None = None) -> GeoWorldBackendClient:
 
 def clear_session() -> None:
     clear_last_result()
+    for key in list(st.session_state):
+        if key.startswith(("marmousi_", "studio_", "unified_")):
+            st.session_state.pop(key, None)
     for key in (
         "access_token",
         "user_email",
@@ -116,6 +119,8 @@ def clear_session() -> None:
         "las_form_signature",
         "rtm_preview", "rtm_prompt", "rtm_structured", "rtm_input_signature", "rtm_replay_id",
         "reference_prompt", "reference_preview", "reference_signature", "reference_debug", "reference_action",
+        "reference_compute", "reference_use_gpu",
+        "manual_tools", "manual_workspace", "saved_job_id", "prompt",
     ):
         st.session_state.pop(key, None)
 
@@ -125,6 +130,7 @@ def clear_last_result() -> None:
         "last_job", "last_job_id", "last_correlation_id",
         "last_submitted_prompt", "clean_report",
         "last_preparation_model", "last_result_models", "rtm_replay",
+        "last_result_source",
     ):
         st.session_state.pop(key, None)
 
@@ -168,21 +174,29 @@ def render_auth() -> str | None:
 
 
 def poll_job(api: GeoWorldBackendClient, job_id: str, *, actual_stages=False, reference=False):
-    progress = None if actual_stages else st.progress(0)
+    from geoworld_open.studio_progress import progress_labels
+    progress = st.empty()
     status = st.empty()
+    timing = st.empty()
     for index in range(2440 if reference else 120):
         job = api.get_job(job_id)
         status.info(job.progress)
-        if progress is not None:
-            progress.progress(min(95, 5 + index % 90))
+        detail = job.progress_detail
+        if detail is not None:
+            fraction, label, caption = progress_labels(detail, running=job.status == "running")
+            progress.progress(fraction, text=label)
+            timing.caption(caption)
+        else:
+            progress.empty()
+            timing.caption("No completed-work counts reported yet; no percentage or ETA is inferred from elapsed time.")
         if job.status in {"succeeded", "failed"}:
             if job.status == "succeeded":
-                if progress is not None:
-                    progress.progress(100)
+                progress.progress(100, text="Job complete · results saved and validated")
+                timing.empty()
                 status.success("Analysis complete.")
             else:
-                if progress is not None:
-                    progress.empty()
+                progress.empty()
+                timing.empty()
                 status.empty()
             return job
         time.sleep(3)
@@ -205,6 +219,7 @@ def submit_and_wait(api: GeoWorldBackendClient, request: JobCreateRequest) -> No
     st.session_state["last_submitted_prompt"] = request.prompt
     st.session_state["last_job_id"] = created.job_id
     st.session_state["last_correlation_id"] = created.correlation_id
+    st.session_state["last_result_source"] = "submitted"
     st.session_state["last_job"] = (poll_job(api, created.job_id, actual_stages=True, reference=True)
                                    if request.mode_hint == "deepwave_reference" else poll_job(api, created.job_id, actual_stages=True)
                                    if request.mode_hint == "model_rtm" else poll_job(api, created.job_id))
@@ -448,7 +463,6 @@ def render_las_workspace(api: GeoWorldBackendClient) -> None:
         settings,
     )
     if st.session_state.get("las_form_signature") != signature:
-        clear_last_result()
         st.session_state["las_form_signature"] = signature
 
     if st.button(
@@ -524,6 +538,7 @@ def render_save_controls(api: GeoWorldBackendClient, options: DisplayOptions) ->
                 file_name="geoworld-clean-report.html",
                 mime="text/html",
                 key=f"report-download-{job_id}",
+                on_click="ignore",
             )
 
 
@@ -569,10 +584,28 @@ def render_result_models(api: GeoWorldBackendClient, job_id: str, result: JobRes
         st.caption(line)
 
 
+def reference_artifact_label(name: str) -> str:
+    basename = name.rsplit("/", 1)[-1]
+    labels = {
+        "velocity_acquisition.png": "INPUT / PROVENANCE: true Marmousi 1 Vp, acquisition geometry, and smoothed migration velocity",
+        "example_rtm_mask.jpg": "PROCESSING DIAGNOSTIC: one observed shot gather, direct-arrival mute, and masked data",
+        "example_rtm.jpg": "OUTPUT: one-update Born-adjoint RTM image",
+    }
+    return labels.get(basename, basename)
+
+
 def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
     job = st.session_state.get("last_job")
     job_id = st.session_state.get("last_job_id")
     if job is None or not job_id:
+        return
+    active_prompt = st.session_state.get("studio_request_prompt")
+    if (
+        st.session_state.get("studio_decision") is not None
+        and st.session_state.get("last_result_source") != "saved_run"
+        and active_prompt
+        and st.session_state.get("last_submitted_prompt") != active_prompt
+    ):
         return
     if job.status == "failed":
         st.error(friendly_job_error(job.error))
@@ -582,6 +615,9 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
         return
 
     result = job.result
+    submitted_prompt = st.session_state.get("last_submitted_prompt")
+    if submitted_prompt:
+        st.caption("Saved result for: " + str(submitted_prompt))
     correlation_id = st.session_state.get("last_correlation_id")
     images = sort_figure_artifacts(
         artifact for artifact in result.artifacts if artifact.kind == "image"
@@ -614,8 +650,8 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
     with overview:
         if result.intent == "deepwave_reference":
             for image in images:
+                st.caption(reference_artifact_label(image.name))
                 st.image(api.get_artifact(job_id, image.name), width="stretch" if options.fit_figures else options.figure_px)
-                st.caption(image.name.rsplit("/", 1)[-1])
         elif result.intent == "model_rtm":
             for image in images[1:]:
                 st.image(api.get_artifact(job_id, image.name), width="stretch" if options.fit_figures else options.figure_px)
@@ -656,7 +692,8 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
     with science:
         for artifact in images:
             try:
-                st.image(api.get_artifact(job_id, artifact.name), caption=artifact.name, width="stretch" if options.fit_figures else options.figure_px)
+                caption = reference_artifact_label(artifact.name) if result.intent == "deepwave_reference" else artifact.name
+                st.image(api.get_artifact(job_id, artifact.name), caption=caption, width="stretch" if options.fit_figures else options.figure_px)
             except GeoWorldClientError as exc:
                 st.warning(f"{artifact.name}: {exc}")
         if result.layers or result.storage:
@@ -737,20 +774,21 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
         st.json(result.model_dump(mode="json"))
 
 
-def render_workspace(api: GeoWorldBackendClient) -> None:
+def render_manual_workspace(api: GeoWorldBackendClient) -> None:
     """Render the existing workflow in a stable presentation-only container."""
     from geoworld_open.studio_rtm import local_rtm_ui_enabled, render_rtm_workspace
     workspaces = ["Ask or Build", "LAS Quicklook"]
     if local_rtm_ui_enabled(backend_url()):
         workspaces.append("Deepwave reference")
+        workspaces.append("Marmousi models")
         workspaces.append("Model + RTM")
     workspace = st.radio(
         "Workspace",
         workspaces,
         horizontal=True,
+        key="manual_workspace",
     )
     if st.session_state.get("active_workspace") != workspace:
-        clear_last_result()
         st.session_state["active_workspace"] = workspace
 
     if workspace == "LAS Quicklook":
@@ -762,6 +800,10 @@ def render_workspace(api: GeoWorldBackendClient) -> None:
     if workspace == "Deepwave reference":
         from geoworld_open.studio_reference import render_reference_workspace
         render_reference_workspace(api, submit_and_wait)
+        return
+    if workspace == "Marmousi models":
+        from geoworld_open.studio_marmousi import render_model_workspace
+        render_model_workspace(api, submit_and_wait)
         return
 
     cols = st.columns(len(EXAMPLES))
@@ -943,6 +985,47 @@ def render_workspace(api: GeoWorldBackendClient) -> None:
         )
 
 
+def render_workspace(api: GeoWorldBackendClient) -> None:
+    with st.expander("Advanced: manual tools / debugging"):
+        manual = st.checkbox("Use manual tools", key="manual_tools")
+        st.caption("Optional compatibility tools. Normally, describe your task below and let GeoWorld select it.")
+    if manual:
+        render_manual_workspace(api)
+    else:
+        from geoworld_open.studio_request import render_request
+        render_request(api, submit_and_wait, render_las_workspace)
+
+
+def render_saved_run(api):
+    import json
+    import re
+    with st.expander("Open saved run"):
+        st.caption("Reopen a job owned by this account. This does not run a model or call an LLM.")
+        job_id = st.text_input("Saved job ID", key="saved_job_id")
+        if st.button("Open run", disabled=not re.fullmatch(r"[0-9a-f]{32}", job_id)):
+            try:
+                job = api.get_job(job_id)
+                if job.status != "succeeded" or job.result is None:
+                    st.warning("This job has not completed successfully yet. " + job.progress)
+                    return
+                # Read everything before replacing visible state; failed access
+                # must not destroy the previously displayed result.
+                original = json.loads(api.get_artifact(job_id, "request.json"))
+                prompt = original["prompt"]
+                if not isinstance(prompt, str):
+                    raise ValueError("Invalid recorded request")
+                clear_last_result()
+                st.session_state["last_job"] = job
+                st.session_state["last_job_id"] = job_id
+                st.session_state["last_submitted_prompt"] = prompt
+                st.session_state["last_result_source"] = "saved_run"
+                # Job status on older backends has no correlation field. Never
+                # reuse an unrelated run's identifier or fail report recovery.
+                st.session_state["last_correlation_id"] = getattr(job.result, "correlation_id", None)
+            except (GeoWorldClientError, ValueError, KeyError) as exc:
+                st.warning(f"Could not open that saved run: {exc}")
+
+
 display_options = DisplayOptions(
     text_px=st.session_state.get("display_text_px", 18),
     figure_px=st.session_state.get("display_figure_px", 880),
@@ -980,6 +1063,7 @@ with st.sidebar:
     if st.button("Log out"):
         clear_session()
         st.rerun()
+    render_saved_run(api)
     st.selectbox("Page layout", ["Auto", "One column", "Two columns"], key="display_layout")
     st.caption("Auto uses two columns when there is room. Narrow screens always stack for readability.")
     with st.expander("Display settings"):

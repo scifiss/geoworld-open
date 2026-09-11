@@ -7,6 +7,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 from geoworld_open.client.rtm import RTMExperiment, RTMResult
 from geoworld_open.client.reference_experiment import ReferenceResult
+from geoworld_open.client.marmousi import MarmousiPreviewRequest
+from geoworld_open.client.job_progress import JobProgress
 
 
 class UserProfile(BaseModel):
@@ -73,6 +75,7 @@ class JobCreateRequest(BaseModel):
     rtm_preparation_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
     reference_preparation_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
     reference_project_id: str | None = Field(default=None, min_length=1, max_length=128)
+    marmousi_model: MarmousiPreviewRequest | None = None
 
 
 class JobCreateResponse(BaseModel):
@@ -171,5 +174,6 @@ class JobStatusResponse(BaseModel):
     job_id: str
     status: Literal["queued", "running", "succeeded", "failed"]
     progress: str
+    progress_detail: JobProgress | None = None
     result: JobResult | None = None
     error: str | None = None

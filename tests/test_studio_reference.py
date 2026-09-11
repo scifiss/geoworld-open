@@ -53,6 +53,7 @@ def test_reference_ui_invalidates_edits_and_prepare_only_cannot_run(monkeypatch)
     monkeypatch.setattr(GeoWorldBackendClient, "submit_job", forbidden)
     app = AppTest.from_file(str(root / "apps/studio_streamlit.py"))
     app.session_state["access_token"] = "test-token"
+    app.session_state["manual_tools"] = True
     app.session_state["user_email"] = "reference@example.test"
     app.run(timeout=20)
     next(r for r in app.radio if r.label == "Workspace").set_value("Deepwave reference").run(timeout=20)
