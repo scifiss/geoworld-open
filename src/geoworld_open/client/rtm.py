@@ -41,7 +41,7 @@ class AdjointImaging(RTMContract):
     smoothing_sigma_cells: float = Field(default=6.0, ge=3.0, le=15.0)
     accuracy: Literal[8] = 8
     pml_width: Literal[20] = 20
-    device: Literal["cpu"] = "cpu"
+    device: Literal["auto", "cpu", "cuda"] = "cpu"
     timeout_s: int = Field(default=180, ge=10, le=240)
 
 
@@ -86,6 +86,7 @@ class RTMModelPreview(RTMContract):
 class RTMPreviewRequest(RTMContract):
     prompt: str | None = Field(default=None, min_length=1, max_length=8000)
     experiment: RTMExperiment | None = None
+    device: Literal["auto", "cpu", "cuda"] | None = None
 
     @model_validator(mode="after")
     def exactly_one(self):

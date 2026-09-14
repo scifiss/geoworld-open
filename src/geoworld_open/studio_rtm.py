@@ -35,7 +35,7 @@ def model_preview_figure(model, field):
 
 def render_rtm_workspace(api, submit, *, prompt=None, auto_prepare=False, prepare_only=False):
     st.subheader("Model + RTM · experimental")
-    st.caption("Local CPU demonstration. Genuine time-domain acoustic shots and one adjoint image; no elastic AVO or velocity inversion.")
+    st.caption("Local CPU/CUDA demonstration. Genuine time-domain acoustic shots and one adjoint image; no elastic AVO or velocity inversion.")
     input_mode = "Natural language"
     if prompt is None:
         input_mode = st.radio("Experiment input", ["Natural language", "Structured input / debugging"], horizontal=True)
@@ -51,7 +51,11 @@ def render_rtm_workspace(api, submit, *, prompt=None, auto_prepare=False, prepar
             structured = RTMExperiment.model_validate_json(raw) if raw.strip() else None
         except ValueError:
             st.warning("The experiment JSON is not valid yet.")
-    signature = (input_mode, prompt, structured.model_dump_json() if structured else None)
+    device = st.selectbox("RTM execution device", ["auto", "cpu", "cuda"], key="rtm_device",
+                          help="Runs on the backend computer. Auto selects CUDA after a resource check, otherwise CPU. Changing this requires preparation and approval again.")
+    if input_mode != "Natural language":
+        st.caption("This device selection overrides the device in pasted JSON; it does not change the model or numerical settings.")
+    signature = (input_mode, prompt, structured.model_dump_json() if structured else None, device)
     if st.session_state.get("rtm_input_signature") != signature:
         st.session_state.pop("rtm_preview", None)
         st.session_state.pop("rtm_model_approved", None)
@@ -61,7 +65,7 @@ def render_rtm_workspace(api, submit, *, prompt=None, auto_prepare=False, prepar
         st.session_state.pop("rtm_model_approved", None)
         try:
             with st.spinner("Interpreting and validating the bounded experiment…"):
-                preview = api.preview_rtm(prompt=prompt if structured is None else None, experiment=structured)
+                preview = api.preview_rtm(prompt=prompt if structured is None else None, experiment=structured, device=device)
             st.session_state["rtm_preview"] = preview
         except GeoWorldClientError as exc:
             st.error(str(exc))
@@ -134,3 +138,8 @@ def render_rtm_summary(result, replay=False):
     st.caption(f"Deepwave {d.get('deepwave', 'unknown')} · PyTorch {d.get('torch', 'unknown')} · "
                f"{d.get('device', 'unknown')} · {d.get('shots', '?')} shots · dt={d.get('dt_s', '?')} s · nt={d.get('nt', '?')}")
     st.caption("One adjoint image, not FWI or converged LSRTM. True and migration velocities share a color scale; image is globally normalized.")
+    if "requested_device" in d:
+        st.caption(f"Requested: {d['requested_device']} → used: {d.get('resolved_device')} · "
+                   f"GPU: {d.get('gpu_model') or 'not used'} · CUDA: {d.get('cuda_version') or 'none'} · "
+                   f"peak allocated VRAM: {d.get('peak_gpu_allocated_bytes', 0) / 1024**2:.1f} MiB")
+        st.caption(d.get("device_resolution_reason", ""))

@@ -95,10 +95,16 @@ def test_studio_prepare_invalidates_on_edits_and_does_not_legacy_route(monkeypat
     next(r for r in at.radio if r.label == "Workspace").set_value("Model + RTM").run(timeout=20)
     next(b for b in at.button if b.label == "Prepare experiment").click().run(timeout=20)
     assert not at.exception and len(calls) == 1
+    assert calls[-1]["device"] == "auto"
     run = next(b for b in at.button if b.label == "Run approved model")
     assert run.disabled
     assert {tab.label for tab in at.tabs} >= {"Vp · solver input", "Vs · context", "Density · context"}
     next(c for c in at.checkbox if c.label.startswith("I reviewed this model")).check().run(timeout=20)
     assert not next(b for b in at.button if b.label == "Run approved model").disabled
+    at.selectbox(key="rtm_device").set_value("cuda").run()
+    assert not any(b.label == "Run approved model" for b in at.button)
+    next(b for b in at.button if b.label == "Prepare experiment").click().run(timeout=20)
+    assert calls[-1]["device"] == "cuda"
+    assert next(b for b in at.button if b.label == "Run approved model").disabled
     at.text_area(key="rtm_prompt").set_value("A changed request").run()
     assert not any(b.label == "Run approved model" for b in at.button)

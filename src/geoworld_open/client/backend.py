@@ -160,9 +160,9 @@ class GeoWorldBackendClient:
         payload = self._json_request("POST", "/jobs", request.model_dump(mode="json"))
         return JobCreateResponse.model_validate(payload)
 
-    def preview_rtm(self, *, prompt=None, experiment=None):
+    def preview_rtm(self, *, prompt=None, experiment=None, device=None):
         from geoworld_open.client.rtm import RTMPreview, RTMPreviewRequest
-        request = RTMPreviewRequest(prompt=prompt, experiment=experiment)
+        request = RTMPreviewRequest(prompt=prompt, experiment=experiment, device=device)
         return RTMPreview.model_validate(self._json_request("POST", "/rtm/preview", request.model_dump(mode="json")))
 
     def get_job(self, job_id: str) -> JobStatusResponse:
