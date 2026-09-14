@@ -20,19 +20,8 @@ def render_reference_workspace(api, submit, *, prompt=None, auto_prepare=False):
             action = st.selectbox("Structured action", ["prepare", "run"], key="reference_action", disabled=not debug)
             st.caption("The reference supplies geometry and numerical defaults. This control cannot introduce arbitrary models or coordinates.")
     st.caption("Calculation runs on the backend computer—not in your browser. GPU choice does not change the reference geometry or physics.")
-    if st.button("Check backend CPU / GPU"):
-        try:
-            st.session_state["reference_compute"] = api.get_reference_compute()
-        except GeoWorldClientError as exc:
-            st.error(str(exc))
-    compute = st.session_state.get("reference_compute")
-    if compute:
-        st.caption(compute.explanation)
-        if compute.gpu_name:
-            st.write(f"{compute.gpu_name} · {compute.free_gpu_gib:.1f} GiB free")
-    use_gpu = st.checkbox("Use backend GPU (CUDA)", key="reference_use_gpu",
-                          disabled=not (compute and compute.reference_gpu_allowed))
-    device = "cuda" if use_gpu and compute and compute.reference_gpu_allowed else "cpu"
+    with st.expander('Advanced: execution preference'):
+        device = st.selectbox('Reference execution device', ['auto', 'cpu', 'cuda'], key='reference_device')
     signature = (prompt, debug, action, device)
     if st.session_state.get("reference_signature") != signature:
         st.session_state.pop("reference_preview", None)
@@ -55,6 +44,25 @@ def render_reference_workspace(api, submit, *, prompt=None, auto_prepare=False):
                else "Request interpretation: structured selection; no LLM call.")
     st.caption("Numerical execution: Deepwave 0.0.26. The LLM does not calculate wavefields or choose acquisition coordinates.")
     st.caption("Selected execution device: " + preview.device.upper())
+    if preview.model_preview:
+        import plotly.graph_objects as go
+        model = preview.model_preview
+        field = st.selectbox('Reference input view', ['true_velocity','migration_velocity'],
+                             format_func=lambda key: key.replace('_',' ').capitalize())
+        fig = go.Figure(go.Heatmap(x=model['x_m'], y=model['z_m'], z=model[field],
+                                  zmin=1500,zmax=5500,colorbar=dict(title='Vp (m/s)')))
+        for key, marker, color in [('receivers_m','circle','white'),('sources_m','star','red')]:
+            points = model[key]
+            fig.add_scatter(x=[p[0] for p in points], y=[p[1] for p in points], mode='markers',
+                marker=dict(symbol=marker, color=color, size=5), name=key.replace('_m',''))
+        fig.update_layout(title='INPUT: '+field.replace('_',' ')+' + acquisition', xaxis_title='x (m)', yaxis_title='Depth (m)')
+        fig.update_yaxes(autorange='reversed', scaleanchor='x')
+        st.caption(model['label'])
+        st.plotly_chart(fig, width='stretch')
+    else:
+        st.caption('Verified reference input preview is unavailable on this backend; no synthetic replacement is generated.')
+    from geoworld_open.studio_execution import render_preflight
+    feasible = render_preflight(preview.execution_plan)
     for conflict in preview.unresolved_conflicts:
         st.warning(conflict)
     for suggestion in preview.suggestions:
@@ -71,7 +79,7 @@ def render_reference_workspace(api, submit, *, prompt=None, auto_prepare=False):
         st.json(preview.resolved_configuration or preview.inherited_reference_values)
         st.markdown("[Official forward example](https://ausargeo.com/deepwave/example_forward_model) · [Official RTM example](https://ausargeo.com/deepwave/example_rtm)")
     st.caption("Execution requires completed standalone reference gates on the local backend. CPU runs can take tens of minutes; this is not enabled on Render.")
-    if st.button("Run verified reference", disabled=not preview.runnable):
+    if st.button("Run verified reference", disabled=not preview.runnable or not feasible):
         try:
             submit(api, JobCreateRequest(prompt=prompt, mode_hint="deepwave_reference", reference_preparation_id=preview.preparation_id))
         except GeoWorldClientError as exc:

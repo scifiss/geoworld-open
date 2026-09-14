@@ -79,6 +79,14 @@ def result_model_lines(
     trace: object = None,
     preparation: str | None = None,
 ) -> list[str]:
+    if result.intent == 'bounded_fwi':
+        records = _mapping(trace).get('capability_uses', [])
+        evidence = next((_mapping(_mapping(item).get('diagnostics')).get('llm')
+            for item in records if _mapping(item).get('capability_name') == 'bounded_fwi'), None)
+        return [execution_model_line(evidence, purpose='FWI interpretation') if evidence else
+                'FWI interpretation: structured selection; no LLM call.' if result.interpretation_mode == 'structured_input' else
+                'FWI interpretation: model information not recorded.',
+                'Numerical execution: bounded Deepwave acoustic velocity FWI, not an LLM, RTM or AVO.']
     if result.intent == "deepwave_reference":
         evidence = result.reference.llm if result.reference is not None else None
         line = (execution_model_line(evidence, purpose="Reference interpretation") if evidence else
@@ -89,9 +97,9 @@ def result_model_lines(
         return ["LAS analysis: deterministic computation, not an LLM."]
     if result.intent == "csv_analysis" or result.mode == "csv_summary":
         return ["CSV analysis: deterministic computation, not an LLM."]
-    model_run = result.intent in {"scenario_generation", "build_model", "model_rtm"}
+    model_run = result.intent in {"scenario_generation", "build_model", "model_rtm", "model_forward"}
     records = _mapping(trace).get("capability_uses")
-    relevant = "rtm_interpretation" if result.intent == "model_rtm" else "semantic_model_parser" if model_run else "rag_qa"
+    relevant = "rtm_interpretation" if result.intent in {"model_rtm", "model_forward"} else "semantic_model_parser" if model_run else "rag_qa"
     evidence = []
     if not model_run and _mapping(answer).get("llm_usage") is not None:
         evidence.append(_mapping(answer).get("llm_usage"))
@@ -107,7 +115,7 @@ def result_model_lines(
         lines = [preparation]
     elif evidence:
         lines = list(dict.fromkeys(execution_model_line(item, purpose=purpose) for item in evidence))
-    elif result.intent == "model_rtm" and result.interpretation_mode == "structured_input":
+    elif result.intent in {"model_rtm", "model_forward"} and result.interpretation_mode == "structured_input":
         lines = ["Experiment interpretation: structured input; no LLM call."]
     elif model_run:
         lines = [preparation_model_line({"interpretation_mode": result.interpretation_mode})]
@@ -116,6 +124,6 @@ def result_model_lines(
     else:
         lines = [f"{purpose}: model information not recorded."]
     if model_run:
-        lines.append("Scientific model: Deepwave acoustic propagation and Born adjoint, not an LLM."
+        lines.append('Scientific model: Deepwave acoustic forward propagation only, not an LLM.' if result.intent=='model_forward' else "Scientific model: Deepwave acoustic propagation and Born adjoint, not an LLM."
                      if result.intent == "model_rtm" else "Scientific model: deterministic computation, not an LLM.")
     return lines

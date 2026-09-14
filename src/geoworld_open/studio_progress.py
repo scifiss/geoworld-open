@@ -15,6 +15,12 @@ def progress_labels(detail, *, now=None, running=True):
     fraction = detail.completed / detail.total
     label = f"RTM batches: {detail.completed}/{detail.total} ({fraction:.0%})"
     elapsed = "Elapsed: " + duration(detail.elapsed_s + age)
+    if detail.unit != 'RTM batch':
+        label = f'{detail.unit}s: {detail.completed}/{detail.total} ({fraction:.0%})'
+        explanation = ('Work units complete; saving and validation remain.' if detail.completed == detail.total else
+            'Live ETA pending two measured work units.' if detail.eta_s is None else
+            'Approx. ' + duration(max(0, detail.eta_s-age)) + ' for remaining work; saving/validation is additional.')
+        return fraction, label, elapsed + ' · ' + explanation
     if detail.completed == detail.total:
         explanation = "Batches complete; final update, artifacts and validation still need to finish."
     elif detail.eta_s is None:

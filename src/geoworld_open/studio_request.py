@@ -57,7 +57,7 @@ def render_request(api, submit, render_las):
     if st.button("Interpret request", type="primary", disabled=not prompt.strip()):
         for key in ("studio_decision", "studio_prepare_attempted", "studio_request_error", "prepared_preview",
                     "reference_preview", "rtm_preview", "marmousi_interpretation", "marmousi_base", "marmousi_preview",
-                    "marmousi_load_error", "unified_fallback_confirmed", "rtm_model_approved"):
+                    "marmousi_load_error", "unified_fallback_confirmed", "rtm_model_approved", "fwi_preview", "fwi_prompt"):
             st.session_state.pop(key, None)
         st.session_state["studio_request_prompt"] = prompt
         try:
@@ -97,9 +97,13 @@ def render_request(api, submit, render_las):
     elif decision.route == "deepwave_reference":
         from geoworld_open.studio_reference import render_reference_workspace
         render_reference_workspace(api, submit, prompt=prompt, auto_prepare=prepare)
-    elif decision.route == "model_rtm":
+    elif decision.route == 'bounded_fwi':
+        from geoworld_open.studio_fwi import render_fwi_workspace
+        render_fwi_workspace(api, submit, prompt=prompt, auto_prepare=prepare, prepare_only=prepare_only)
+    elif decision.route in {"model_rtm", "model_forward"}:
         from geoworld_open.studio_rtm import render_rtm_workspace
-        render_rtm_workspace(api, submit, prompt=prompt, auto_prepare=prepare, prepare_only=prepare_only)
+        render_rtm_workspace(api, submit, prompt=prompt, auto_prepare=prepare, prepare_only=prepare_only,
+                             operation='forward' if decision.route=='model_forward' else 'rtm')
     elif decision.route == "build_model":
         render_build(api, submit, prompt, prepare=prepare, prepare_only=prepare_only)
     elif decision.route == "las_quicklook":

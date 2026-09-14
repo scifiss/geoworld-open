@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from .execution import ExecutionPlan
 
 
 class RTMContract(BaseModel):
@@ -41,7 +42,7 @@ class AdjointImaging(RTMContract):
     smoothing_sigma_cells: float = Field(default=6.0, ge=3.0, le=15.0)
     accuracy: Literal[8] = 8
     pml_width: Literal[20] = 20
-    device: Literal["auto", "cpu", "cuda"] = "cpu"
+    device: Literal["auto", "cpu", "cuda"] = "auto"
     timeout_s: int = Field(default=180, ge=10, le=240)
 
 
@@ -87,6 +88,7 @@ class RTMPreviewRequest(RTMContract):
     prompt: str | None = Field(default=None, min_length=1, max_length=8000)
     experiment: RTMExperiment | None = None
     device: Literal["auto", "cpu", "cuda"] | None = None
+    operation: Literal['rtm', 'forward'] = 'rtm'
 
     @model_validator(mode="after")
     def exactly_one(self):
@@ -102,10 +104,13 @@ class RTMPreview(RTMContract):
     llm: dict[str, Any] | None = None
     preparation_id: str | None = None
     model_preview: RTMModelPreview | None = None
+    execution_plan: ExecutionPlan | None = None
+    operation: Literal['rtm', 'forward'] = 'rtm'
+    prepare_only: bool = False
 
 
 class RTMResult(RTMContract):
-    method: Literal["born_adjoint"] = "born_adjoint"
+    method: Literal["born_adjoint", "acoustic_forward"] = "born_adjoint"
     state_id: str
     observation_id: str
     acquisition_id: str

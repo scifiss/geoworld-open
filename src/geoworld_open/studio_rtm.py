@@ -33,9 +33,10 @@ def model_preview_figure(model, field):
     return figure
 
 
-def render_rtm_workspace(api, submit, *, prompt=None, auto_prepare=False, prepare_only=False):
-    st.subheader("Model + RTM · experimental")
-    st.caption("Local CPU/CUDA demonstration. Genuine time-domain acoustic shots and one adjoint image; no elastic AVO or velocity inversion.")
+def render_rtm_workspace(api, submit, *, prompt=None, auto_prepare=False, prepare_only=False, operation='rtm'):
+    st.subheader("Model + RTM · experimental" if operation=='rtm' else 'Model + acoustic forward modelling')
+    st.caption("Local CPU/CUDA demonstration. Genuine time-domain acoustic shots and one adjoint image; no elastic AVO or velocity inversion."
+               if operation=='rtm' else 'Acoustic shots only. No migration or inversion is performed.')
     input_mode = "Natural language"
     if prompt is None:
         input_mode = st.radio("Experiment input", ["Natural language", "Structured input / debugging"], horizontal=True)
@@ -51,11 +52,12 @@ def render_rtm_workspace(api, submit, *, prompt=None, auto_prepare=False, prepar
             structured = RTMExperiment.model_validate_json(raw) if raw.strip() else None
         except ValueError:
             st.warning("The experiment JSON is not valid yet.")
-    device = st.selectbox("RTM execution device", ["auto", "cpu", "cuda"], key="rtm_device",
+    with st.expander('Advanced: execution preference'):
+        device = st.selectbox("RTM execution device", ["auto", "cpu", "cuda"], key="rtm_device",
                           help="Runs on the backend computer. Auto selects CUDA after a resource check, otherwise CPU. Changing this requires preparation and approval again.")
     if input_mode != "Natural language":
         st.caption("This device selection overrides the device in pasted JSON; it does not change the model or numerical settings.")
-    signature = (input_mode, prompt, structured.model_dump_json() if structured else None, device)
+    signature = (input_mode, prompt, structured.model_dump_json() if structured else None, device, operation)
     if st.session_state.get("rtm_input_signature") != signature:
         st.session_state.pop("rtm_preview", None)
         st.session_state.pop("rtm_model_approved", None)
@@ -65,7 +67,7 @@ def render_rtm_workspace(api, submit, *, prompt=None, auto_prepare=False, prepar
         st.session_state.pop("rtm_model_approved", None)
         try:
             with st.spinner("Interpreting and validating the bounded experiment…"):
-                preview = api.preview_rtm(prompt=prompt if structured is None else None, experiment=structured, device=device)
+                preview = api.preview_rtm(prompt=prompt if structured is None else None, experiment=structured, device=device,operation=operation)
             st.session_state["rtm_preview"] = preview
         except GeoWorldClientError as exc:
             st.error(str(exc))
@@ -91,20 +93,23 @@ def render_rtm_workspace(api, submit, *, prompt=None, auto_prepare=False, prepar
                     st.plotly_chart(model_preview_figure(model, field), key="rtm_model_" + field, width="stretch")
             st.caption("Approved Vp identity: " + model.vp_sha256[:16] + "… The completed run is rejected if its rebuilt Vp does not match.")
         with st.expander("Prepared experiment / assumptions", expanded=True):
-            st.write("Migration uses smoothed synthetic truth. This is an idealized model, not a recovered earth model.")
+            st.write("Migration uses smoothed synthetic truth. This is an idealized model, not a recovered earth model."
+                     if operation=='rtm' else 'Forward propagation uses the reviewed Vp. No migration model or RTM is calculated.')
             for assumption in preview.assumptions:
                 st.caption(assumption)
         with st.expander("Resolved request"):
             st.code(experiment.model_dump_json(indent=2), language="json")
-        if prepare_only:
+        if prepare_only or preview.prepare_only:
             st.info("Prepared only, as requested. Submit a new request to run it.")
+        from geoworld_open.studio_execution import render_preflight
+        feasible = render_preflight(preview.execution_plan)
         if preview.model_preview is None:
             st.warning("This backend did not return a reviewable model. Restart it with the current code before running.")
-        approved = st.checkbox("I reviewed this model and want to use its Vp for acoustic forward modelling and RTM", key="rtm_model_approved",
+        approved = st.checkbox("I reviewed this model and want to use its Vp for acoustic forward modelling"+(' and RTM' if operation=='rtm' else ' only'), key="rtm_model_approved",
                                disabled=preview.model_preview is None)
-        if st.button("Run approved model", disabled=prepare_only or not approved or preview.model_preview is None):
+        if st.button("Run approved model", disabled=prepare_only or preview.prepare_only or not approved or preview.model_preview is None or not feasible):
             try:
-                submit(api, JobCreateRequest(prompt=prompt, mode_hint="model_rtm", rtm_experiment=experiment,
+                submit(api, JobCreateRequest(prompt=prompt, mode_hint="model_rtm" if operation=='rtm' else 'model_forward', rtm_experiment=experiment,
                                             rtm_preparation_id=preview.preparation_id))
             except GeoWorldClientError as exc:
                 st.error(str(exc))
@@ -134,6 +139,10 @@ def render_rtm_summary(result, replay=False):
     if evidence is None:
         return
     d = evidence.diagnostics
+    if evidence.method=='acoustic_forward':
+        st.success(f'Acoustic forward shots · {evidence.runtime_seconds:.1f} s · peak worker RSS {evidence.peak_memory_mib:.0f} MiB')
+        st.caption(f"Deepwave {d.get('deepwave')} · {d.get('resolved_device')} · {d.get('shots')} shots. No Born adjoint, RTM or inversion was run.")
+        return
     st.success(f"Acoustic shots + Born-adjoint image · {evidence.runtime_seconds:.1f} s · peak worker RSS {evidence.peak_memory_mib:.0f} MiB")
     st.caption(f"Deepwave {d.get('deepwave', 'unknown')} · PyTorch {d.get('torch', 'unknown')} · "
                f"{d.get('device', 'unknown')} · {d.get('shots', '?')} shots · dt={d.get('dt_s', '?')} s · nt={d.get('nt', '?')}")

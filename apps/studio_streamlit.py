@@ -120,6 +120,7 @@ def clear_session() -> None:
         "rtm_preview", "rtm_prompt", "rtm_structured", "rtm_input_signature", "rtm_replay_id",
         "reference_prompt", "reference_preview", "reference_signature", "reference_debug", "reference_action",
         "reference_compute", "reference_use_gpu",
+        "fwi_preview", "fwi_prompt", "reference_device", "rtm_device",
         "manual_tools", "manual_workspace", "saved_job_id", "prompt",
     ):
         st.session_state.pop(key, None)
@@ -225,8 +226,8 @@ def submit_and_wait(api: GeoWorldBackendClient, request: JobCreateRequest) -> No
     st.session_state["last_correlation_id"] = created.correlation_id
     st.session_state["last_result_source"] = "submitted"
     st.session_state["last_job"] = (poll_job(api, created.job_id, actual_stages=True, reference=True)
-                                   if request.mode_hint == "deepwave_reference" else poll_job(api, created.job_id, actual_stages=True)
-                                   if request.mode_hint == "model_rtm" else poll_job(api, created.job_id))
+                                   if request.mode_hint in {"deepwave_reference", "bounded_fwi"} else poll_job(api, created.job_id, actual_stages=True)
+                                   if request.mode_hint in {"model_rtm", "model_forward"} else poll_job(api, created.job_id))
 
 
 def load_json_artifact(
@@ -635,12 +636,16 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
         images = sorted(images, key=lambda artifact: order.get(artifact.name.rsplit("/", 1)[-1], 3))
 
     render_result_models(api, job_id, result)
-    if result.intent == "model_rtm":
+    if result.intent in {"model_rtm", "model_forward"}:
         from geoworld_open.studio_rtm import render_rtm_summary
         render_rtm_summary(result, replay=bool(st.session_state.get("rtm_replay")))
     elif result.intent == "deepwave_reference":
         from geoworld_open.studio_reference import render_reference_summary
         render_reference_summary(result)
+    elif result.intent == 'bounded_fwi' and result.fwi:
+        st.success(f'Bounded acoustic FWI · {result.fwi.iterations} updates · {result.fwi.runtime_seconds:.1f} s')
+        st.write(f'Data MSE: {result.fwi.initial_objective:.6g} → {result.fwi.final_objective:.6g}')
+        st.caption('OUTPUT: current velocity and update, not an RTM image or elastic inversion. Checkpoint and raw arrays are in Artifacts.')
     with st.expander("Job details"):
         st.write(f"**Job:** `{job_id}`")
         if correlation_id:

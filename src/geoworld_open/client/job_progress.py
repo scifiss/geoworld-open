@@ -7,14 +7,14 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 class JobProgress(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False, strict=True)
-    phase: Literal["preparing", "born", "backward", "rtm_batches", "finalizing"]
+    phase: Literal["preparing", "born", "backward", "rtm_batches", "finalizing", "fwi_iterations", "forward_shots"]
     completed: int = Field(ge=0)
     total: int = Field(gt=0)
-    unit: Literal["RTM batch"] = "RTM batch"
+    unit: Literal["RTM batch", "FWI iteration", "shot"] = "RTM batch"
     elapsed_s: float = Field(ge=0)
     eta_s: float | None = Field(default=None, ge=0)
     # ETA describes the remaining batches, not export/comparison/database work.
-    eta_scope: Literal["remaining_rtm_batches"] = "remaining_rtm_batches"
+    eta_scope: Literal["remaining_rtm_batches", "remaining_work_units"] = "remaining_rtm_batches"
     updated_unix_s: float = Field(ge=0)
 
     @model_validator(mode="after")

@@ -69,6 +69,36 @@ def test_rtm_model_attribution():
     assert any("Amazon Bedrock" in line for line in lines)
 
 
+def test_forward_ui_requires_approval_and_submits_only_forward(monkeypatch):
+    pytest.importorskip('streamlit')
+    from streamlit.testing.v1 import AppTest
+    from geoworld_open.client import GeoWorldBackendClient
+    from test_execution_contracts import example_plan
+    calls=[]
+    def preview(self,**kwargs):
+        calls.append(kwargs)
+        return RTMPreview(experiment=experiment(),operation='forward',interpretation_mode='structured_input',
+            assumptions=['Forward only'],model_preview=model_preview(),execution_plan=example_plan(),preparation_id='a'*32)
+    monkeypatch.setattr(GeoWorldBackendClient,'preview_rtm',preview)
+    def app():
+        import streamlit as st
+        from geoworld_open.client import GeoWorldBackendClient
+        from geoworld_open.studio_rtm import render_rtm_workspace
+        first=not st.session_state.get('prepared_once',False)
+        st.session_state['prepared_once']=True
+        def submit(api,request):
+            st.session_state['submitted_request']=request.model_dump(mode='json')
+        render_rtm_workspace(GeoWorldBackendClient('http://localhost:8100'),submit,
+            prompt='Build layers and run forward modelling',operation='forward',auto_prepare=first)
+    at=AppTest.from_function(app).run(timeout=20)
+    assert not at.exception and len(calls)==1 and calls[0]['operation']=='forward'
+    assert next(b for b in at.button if b.label=='Run approved model').disabled
+    next(c for c in at.checkbox if c.label.startswith('I reviewed')).check().run(timeout=20)
+    next(b for b in at.button if b.label=='Run approved model').click().run(timeout=20)
+    assert at.session_state['submitted_request']['mode_hint']=='model_forward'
+    assert len(calls)==1
+
+
 def test_studio_prepare_invalidates_on_edits_and_does_not_legacy_route(monkeypatch):
     pytest.importorskip("streamlit")
     from streamlit.testing.v1 import AppTest
@@ -80,8 +110,9 @@ def test_studio_prepare_invalidates_on_edits_and_does_not_legacy_route(monkeypat
     calls = []
     def preview(self, **kwargs):
         calls.append(kwargs)
+        from test_execution_contracts import example_plan
         return RTMPreview(experiment=experiment(), interpretation_mode="structured_input", assumptions=["Synthetic only"],
-                          preparation_id="b" * 32, model_preview=model_preview())
+                          preparation_id="b" * 32, model_preview=model_preview(), execution_plan=example_plan())
     monkeypatch.setattr(GeoWorldBackendClient, "preview_rtm", preview)
     def forbidden(*args, **kwargs):
         pytest.fail("RTM UI must not call legacy intent/GeoSpec preview")

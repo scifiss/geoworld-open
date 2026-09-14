@@ -132,10 +132,16 @@ class GeoWorldBackendClient:
         request = MarmousiInterpretRequest(prompt=prompt, project_id=project_id)
         return MarmousiInterpretation.model_validate(self._json_request("POST", "/models/marmousi/interpret", request.model_dump(mode="json")))
 
-    def preview_reference(self, *, prompt=None, selection=None, project_id=None, device="cpu"):
+    def preview_reference(self, *, prompt=None, selection=None, project_id=None, device="auto"):
         from geoworld_open.client.reference_experiment import ReferencePreview, ReferencePreviewRequest
         request = ReferencePreviewRequest(prompt=prompt, selection=selection, project_id=project_id, device=device)
         return ReferencePreview.model_validate(self._json_request("POST", "/references/preview", request.model_dump(mode="json")))
+
+    def preview_fwi(self, *, prompt=None, selection=None, preference=None):
+        from geoworld_open.client.fwi import FWIPreview, FWIPreviewRequest
+        from geoworld_open.client.execution import ExecutionPreference
+        request = FWIPreviewRequest(prompt=prompt, selection=selection, preference=preference or ExecutionPreference())
+        return FWIPreview.model_validate(self._json_request('POST', '/fwi/preview', request.model_dump(mode='json')))
 
     def preview_geospec(
         self,
@@ -160,9 +166,9 @@ class GeoWorldBackendClient:
         payload = self._json_request("POST", "/jobs", request.model_dump(mode="json"))
         return JobCreateResponse.model_validate(payload)
 
-    def preview_rtm(self, *, prompt=None, experiment=None, device=None):
+    def preview_rtm(self, *, prompt=None, experiment=None, device=None, operation='rtm'):
         from geoworld_open.client.rtm import RTMPreview, RTMPreviewRequest
-        request = RTMPreviewRequest(prompt=prompt, experiment=experiment, device=device)
+        request = RTMPreviewRequest(prompt=prompt, experiment=experiment, device=device, operation=operation)
         return RTMPreview.model_validate(self._json_request("POST", "/rtm/preview", request.model_dump(mode="json")))
 
     def get_job(self, job_id: str) -> JobStatusResponse:

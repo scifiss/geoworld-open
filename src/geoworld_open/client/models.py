@@ -9,6 +9,7 @@ from geoworld_open.client.rtm import RTMExperiment, RTMResult
 from geoworld_open.client.reference_experiment import ReferenceResult
 from geoworld_open.client.marmousi import MarmousiPreviewRequest
 from geoworld_open.client.job_progress import JobProgress
+from geoworld_open.client.fwi import FWIResult
 
 
 class UserProfile(BaseModel):
@@ -76,6 +77,7 @@ class JobCreateRequest(BaseModel):
     reference_preparation_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
     reference_project_id: str | None = Field(default=None, min_length=1, max_length=128)
     marmousi_model: MarmousiPreviewRequest | None = None
+    fwi_preparation_id: str | None = Field(default=None, pattern=r'^[0-9a-f]{32}$')
 
 
 class JobCreateResponse(BaseModel):
@@ -160,6 +162,7 @@ class JobResult(BaseModel):
     provenance_summary: dict[str, Any] = Field(default_factory=dict)
     rtm: RTMResult | None = None
     reference: ReferenceResult | None = None
+    fwi: FWIResult | None = None
 
     @model_validator(mode="after")
     def validate_grounding(self) -> "JobResult":

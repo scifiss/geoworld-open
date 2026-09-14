@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from .execution import ExecutionPlan
 
 REFERENCE_ID = "deepwave-marmousi1-rtm-v0.0.26-r1"
 
@@ -34,7 +35,7 @@ class ReferencePreviewRequest(ReferenceContract):
     prompt: str | None = Field(default=None, min_length=1, max_length=8000)
     selection: ReferenceSelection | None = None
     project_id: str | None = Field(default=None, min_length=1, max_length=128)
-    device: Literal["cpu", "cuda"] = "cpu"
+    device: Literal["auto", "cpu", "cuda"] = "auto"
 
     @model_validator(mode="after")
     def exactly_one(self):
@@ -59,6 +60,8 @@ class ReferencePreview(ReferenceContract):
     llm: dict[str, Any] | None = None
     preparation_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
     device: Literal["cpu", "cuda"] = "cpu"
+    execution_plan: ExecutionPlan | None = None
+    model_preview: dict[str, Any] | None = None
 
 
 class ReferenceResult(ReferenceContract):
