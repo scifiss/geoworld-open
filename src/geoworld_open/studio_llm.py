@@ -82,11 +82,11 @@ def result_model_lines(
     if result.intent == 'bounded_fwi':
         records = _mapping(trace).get('capability_uses', [])
         evidence = next((_mapping(_mapping(item).get('diagnostics')).get('llm')
-            for item in records if _mapping(item).get('capability_name') == 'bounded_fwi'), None)
+            for item in records if _mapping(item).get('capability_name') in {'bounded_fwi','simple_fwi_250','progressive_fwi'}), None)
         return [execution_model_line(evidence, purpose='FWI interpretation') if evidence else
                 'FWI interpretation: structured selection; no LLM call.' if result.interpretation_mode == 'structured_input' else
                 'FWI interpretation: model information not recorded.',
-                'Numerical execution: bounded Deepwave acoustic velocity FWI, not an LLM, RTM or AVO.']
+                'Numerical execution: Deepwave acoustic velocity FWI, not an LLM, RTM or AVO.']
     if result.intent == "deepwave_reference":
         evidence = result.reference.llm if result.reference is not None else None
         line = (execution_model_line(evidence, purpose="Reference interpretation") if evidence else

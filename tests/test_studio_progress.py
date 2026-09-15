@@ -31,6 +31,22 @@ def test_older_jobs_remain_readable():
     assert job.progress_detail is None
 
 
+def test_lbfgs_closures_do_not_become_progress_denominator():
+    for closure in (1,4,27):
+        value=detail(phase='fwi_iterations',unit='LBFGS outer step',completed=4,total=10,
+                     stage_label=f'20 Hz stage · LBFGS step 1/2 · closure evaluation {closure}',
+                     eta_confidence='low',eta_scope='remaining_work_units')
+        fraction,label,caption=progress_labels(value,now=1000.)
+        assert fraction==.4 and '4/10' in label
+        assert '20 Hz stage' in label and f'closure evaluation {closure}' in label
+        assert 'Confidence: low' in caption
+
+
+def test_fwi_expired_eta_does_not_show_fake_zero():
+    value=detail(phase='fwi_iterations',unit='FWI iteration',completed=100,total=250)
+    assert 'Taking longer' in progress_labels(value,now=4000.)[2]
+
+
 @pytest.mark.parametrize("changes", [{"completed":40}, {"eta_s":float("nan")}, {"completed":0}, {"total":0}])
 def test_invalid_progress_rejected(changes):
     with pytest.raises(ValueError):

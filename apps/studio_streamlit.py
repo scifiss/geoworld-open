@@ -179,6 +179,10 @@ def poll_job(api: GeoWorldBackendClient, job_id: str, *, actual_stages=False, re
     progress = st.empty()
     status = st.empty()
     timing = st.empty()
+    snapshot_slot = None
+    snapshot_step = None
+    snapshot_checked_at = None
+    snapshot_checked_step = None
     for index in range(2440 if reference else 120):
         job = api.get_job(job_id)
         status.info(job.progress)
@@ -187,6 +191,24 @@ def poll_job(api: GeoWorldBackendClient, job_id: str, *, actual_stages=False, re
             fraction, label, caption = progress_labels(detail, running=job.status == "running")
             progress.progress(fraction, text=label)
             timing.caption(caption)
+            from geoworld_open.studio_fwi_snapshots import should_check_snapshot
+            if (reference and detail.phase=='fwi_iterations'
+                    and should_check_snapshot(detail.completed,snapshot_checked_step,time.monotonic(),snapshot_checked_at)):
+                snapshot_checked_at=time.monotonic()
+                snapshot_checked_step=detail.completed
+                try:
+                    from geoworld_open.studio_fwi_snapshots import latest_snapshot
+                    latest=latest_snapshot(api,job_id,detail.completed)
+                    if latest and latest[0]!=snapshot_step:
+                        picture=api.get_artifact(job_id,latest[1])
+                        if snapshot_slot is None:
+                            snapshot_slot=st.empty()
+                        snapshot_slot.image(picture,caption=f'Intermediate FWI result after {latest[0]} {detail.unit.lower()}s; not the final result.',width='stretch')
+                        snapshot_step=latest[0]
+                except (GeoWorldClientError,ValueError):
+                    # Before the first selected boundary, no index exists.
+                    # Missing display artifacts never alter scientific progress.
+                    pass
         else:
             progress.empty()
             timing.caption("No completed-work counts reported yet; no percentage or ETA is inferred from elapsed time.")
@@ -634,6 +656,11 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
     if result.intent == "deepwave_reference":
         order = {"velocity_acquisition.png": 0, "example_rtm_mask.jpg": 1, "example_rtm.jpg": 2}
         images = sorted(images, key=lambda artifact: order.get(artifact.name.rsplit("/", 1)[-1], 3))
+    elif result.intent == 'bounded_fwi' and result.fwi and result.fwi.snapshots:
+        # Final state first in Overview; the saved intermediate states remain
+        # accessible in Model & Figures and as raw downloadable artifacts.
+        final_name=result.fwi.snapshots[-1]['figure_file']
+        images=sorted(images,key=lambda artifact: artifact.name!=final_name)
 
     render_result_models(api, job_id, result)
     if result.intent in {"model_rtm", "model_forward"}:
@@ -643,8 +670,18 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
         from geoworld_open.studio_reference import render_reference_summary
         render_reference_summary(result)
     elif result.intent == 'bounded_fwi' and result.fwi:
-        st.success(f'Bounded acoustic FWI · {result.fwi.iterations} updates · {result.fwi.runtime_seconds:.1f} s')
-        st.write(f'Data MSE: {result.fwi.initial_objective:.6g} → {result.fwi.final_objective:.6g}')
+        from geoworld_open.client.fwi import FWI_LABELS, FWI_PROGRESSIVE_ID
+        unit='outer LBFGS steps' if result.fwi.reference_id==FWI_PROGRESSIVE_ID else 'updates'
+        st.success(f'{FWI_LABELS[result.fwi.reference_id]} · {result.fwi.iterations} {unit} · {result.fwi.runtime_seconds:.1f} s')
+        if result.fwi.reference_id==FWI_PROGRESSIVE_ID:
+            st.write(f'10 Hz initial scaled objective: {result.fwi.initial_objective:.6g}. '
+                     f'30 Hz final scaled objective: {result.fwi.final_objective:.6g}.')
+            st.caption('Objectives at different frequency stages use different filtered data and are not directly comparable.')
+        else:
+            st.write(f'Data objective: {result.fwi.initial_objective:.6g} → {result.fwi.final_objective:.6g}')
+        if result.fwi.initial_velocity_rmse is not None:
+            st.write(f'Evaluation-only velocity RMSE: {result.fwi.initial_velocity_rmse:.2f} → {result.fwi.final_velocity_rmse:.2f} m/s')
+            st.caption('Synthetic truth is not part of the inversion objective. Lower data loss alone does not demonstrate geological recovery.')
         st.caption('OUTPUT: current velocity and update, not an RTM image or elastic inversion. Checkpoint and raw arrays are in Artifacts.')
     with st.expander("Job details"):
         st.write(f"**Job:** `{job_id}`")

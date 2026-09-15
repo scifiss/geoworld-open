@@ -40,3 +40,14 @@ def test_fwi_contract_never_accepts_arbitrary_solver_inputs():
         FWISelection(velocity=[[1500]])
     with pytest.raises(ValueError):
         FWIPreviewRequest(prompt='run',selection=FWISelection())
+
+
+def test_fwi_three_versioned_experiments_do_not_relabel_bounded10():
+    from geoworld_open.client.fwi import FWIResult, FWI_REFERENCE_ID, FWI_SIMPLE_250_ID, FWI_PROGRESSIVE_ID
+    base=dict(initial_objective=1.,final_objective=.5,loss_history=[1.],runtime_seconds=1.,reports=[])
+    assert FWIResult(iterations=10,**base).reference_id==FWI_REFERENCE_ID
+    with pytest.raises(ValueError):
+        FWIResult(iterations=250,**base)
+    assert FWIResult(reference_id=FWI_SIMPLE_250_ID,iterations=250,**base).iterations==250
+    with pytest.raises(ValueError):
+        FWIResult(reference_id=FWI_PROGRESSIVE_ID,iterations=250,**base)

@@ -17,9 +17,14 @@ def progress_labels(detail, *, now=None, running=True):
     elapsed = "Elapsed: " + duration(detail.elapsed_s + age)
     if detail.unit != 'RTM batch':
         label = f'{detail.unit}s: {detail.completed}/{detail.total} ({fraction:.0%})'
+        if detail.stage_label:
+            label += ' · ' + detail.stage_label
         explanation = ('Work units complete; saving and validation remain.' if detail.completed == detail.total else
             'Live ETA pending two measured work units.' if detail.eta_s is None else
+            'Taking longer than the last estimate; ETA updates after the next completed work unit.' if detail.eta_s <= age else
             'Approx. ' + duration(max(0, detail.eta_s-age)) + ' for remaining work; saving/validation is additional.')
+        if detail.eta_s is not None and detail.eta_confidence:
+            explanation += ' Confidence: ' + detail.eta_confidence + '.'
         return fraction, label, elapsed + ' · ' + explanation
     if detail.completed == detail.total:
         explanation = "Batches complete; final update, artifacts and validation still need to finish."

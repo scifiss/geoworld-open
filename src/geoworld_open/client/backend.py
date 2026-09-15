@@ -137,10 +137,12 @@ class GeoWorldBackendClient:
         request = ReferencePreviewRequest(prompt=prompt, selection=selection, project_id=project_id, device=device)
         return ReferencePreview.model_validate(self._json_request("POST", "/references/preview", request.model_dump(mode="json")))
 
-    def preview_fwi(self, *, prompt=None, selection=None, preference=None):
+    def preview_fwi(self, *, prompt=None, selection=None, preference=None, intermediate_results=None):
         from geoworld_open.client.fwi import FWIPreview, FWIPreviewRequest
         from geoworld_open.client.execution import ExecutionPreference
-        request = FWIPreviewRequest(prompt=prompt, selection=selection, preference=preference or ExecutionPreference())
+        from geoworld_open.client.intermediate_results import IntermediateResultPolicy
+        request = FWIPreviewRequest(prompt=prompt, selection=selection, preference=preference or ExecutionPreference(),
+            intermediate_results=intermediate_results or IntermediateResultPolicy())
         return FWIPreview.model_validate(self._json_request('POST', '/fwi/preview', request.model_dump(mode='json')))
 
     def preview_geospec(
