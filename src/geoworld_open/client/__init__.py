@@ -18,20 +18,34 @@ from geoworld_open.client.models import (
     UploadedLASFile,
     UserProfile,
 )
+from geoworld_open.client.scientific_experiment import (
+    AcquisitionRequest,
+    ConversationState,
+    InversionRequest,
+    ModelSelection,
+    RequestedOutputs,
+    ScientificExperimentDraft,
+)
 
 __all__ = [
+    "AcquisitionRequest",
     "ArtifactInfo",
     "AuthResponse",
     "CapabilityCatalog",
     "CapabilityDescription",
+    "ConversationState",
     "GeoWorldBackendClient",
     "GeoWorldClientError",
+    "InversionRequest",
     "JobCreateRequest",
     "JobCreateResponse",
     "JobResult",
     "JobStatusResponse",
     "LASQuicklookSettings",
+    "ModelSelection",
     "QACitation",
+    "RequestedOutputs",
+    "ScientificExperimentDraft",
     "UploadedLASFile",
     "UserProfile",
 ]

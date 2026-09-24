@@ -118,6 +118,21 @@ class GeoWorldBackendClient:
         request = StudioRequest(prompt=prompt, project_id=project_id)
         return StudioDecision.model_validate(self._json_request("POST", "/intent/interpret", request.model_dump(mode="json")))
 
+    def continue_experiment(self, prompt, *, conversation_id=None, project_id=None):
+        from geoworld_open.client.scientific_experiment import (
+            ExperimentConversationRequest,
+            ExperimentConversationResponse,
+        )
+        request = ExperimentConversationRequest(
+            prompt=prompt,
+            conversation_id=conversation_id,
+            project_id=project_id,
+        )
+        payload = self._json_request(
+            "POST", "/experiments/conversation/turn", request.model_dump(mode="json")
+        )
+        return ExperimentConversationResponse.model_validate(payload)
+
     def get_reference_compute(self):
         from geoworld_open.client.reference_experiment import ReferenceCompute
         return ReferenceCompute.model_validate(self._json_request("GET", "/references/compute"))
