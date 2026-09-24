@@ -131,7 +131,7 @@ def clear_last_result() -> None:
         "last_job", "last_job_id", "last_correlation_id",
         "last_submitted_prompt", "clean_report",
         "last_preparation_model", "last_result_models", "rtm_replay",
-        "last_result_source",
+        "last_result_source", "last_submitted_mode_hint",
     ):
         st.session_state.pop(key, None)
 
@@ -247,6 +247,7 @@ def submit_and_wait(api: GeoWorldBackendClient, request: JobCreateRequest) -> No
     st.session_state["last_job_id"] = created.job_id
     st.session_state["last_correlation_id"] = created.correlation_id
     st.session_state["last_result_source"] = "submitted"
+    st.session_state["last_submitted_mode_hint"] = request.mode_hint
     st.session_state["last_job"] = (poll_job(api, created.job_id, actual_stages=True, reference=True)
                                    if request.mode_hint in {"deepwave_reference", "bounded_fwi"} else poll_job(api, created.job_id, actual_stages=True)
                                    if request.mode_hint in {"model_rtm", "model_forward"} else poll_job(api, created.job_id))
@@ -624,15 +625,28 @@ def reference_artifact_label(name: str) -> str:
 def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
     job = st.session_state.get("last_job")
     job_id = st.session_state.get("last_job_id")
-    if job is None or not job_id:
+    if not job_id:
         return
-    active_prompt = st.session_state.get("studio_request_prompt")
+    reconnect_mode = st.session_state.get("last_submitted_mode_hint")
+    if job is None and reconnect_mode in {"deepwave_reference", "bounded_fwi", "model_rtm", "model_forward", "ask_question", "build_model"}:
+        try:
+            job = api.get_job(job_id)
+            st.session_state["last_job"] = job
+            if job.status in {"queued", "running"}:
+                st.info("Reconnected to the running job after the page rerun.")
+                st.session_state["last_job"] = poll_job(api, job_id, actual_stages=True, reference=reconnect_mode in {"deepwave_reference", "bounded_fwi"})
+                job = st.session_state["last_job"]
+        except GeoWorldClientError as exc:
+            st.warning(f"Could not reconnect to the submitted job: {exc}")
+            return
+    if job is None:
+        return
+    active_prompt = st.session_state.get("studio_request_prompt") or st.session_state.get("prompt")
     if (
         # The normal request's stale-result guard does not own manual runs.
         # Keep existing results visible in manual tools without changing jobs
         # or discarding the normal workflow's interpretation on a mode switch.
         not st.session_state.get("manual_tools", False)
-        and st.session_state.get("studio_decision") is not None
         and st.session_state.get("last_result_source") != "saved_run"
         and active_prompt
         and st.session_state.get("last_submitted_prompt") != active_prompt
@@ -1070,6 +1084,7 @@ def render_saved_run(api):
                 st.session_state["last_job_id"] = job_id
                 st.session_state["last_submitted_prompt"] = prompt
                 st.session_state["last_result_source"] = "saved_run"
+                st.session_state["last_submitted_mode_hint"] = None
                 # Job status on older backends has no correlation field. Never
                 # reuse an unrelated run's identifier or fail report recovery.
                 st.session_state["last_correlation_id"] = getattr(job.result, "correlation_id", None)

@@ -76,5 +76,15 @@ def render_fwi_workspace(api, submit, *, prompt, auto_prepare=False, prepare_onl
         st.json(preview.selection.model_dump(mode='json'))
         st.json(preview.settings)
     label='Run bounded FWI' if preview.selection.reference_id==FWI_REFERENCE_ID else 'Run FWI'
-    if st.button(label,disabled=prepare_only or not preview.runnable or not feasible):
+    same_submitted_fwi=(st.session_state.get('last_submitted_mode_hint')=='bounded_fwi'
+        and st.session_state.get('last_submitted_prompt')==prompt
+        and st.session_state.get('last_job_id'))
+    last_job=st.session_state.get('last_job')
+    submitted_not_failed=bool(same_submitted_fwi and (last_job is None or last_job.status!='failed'))
+    if submitted_not_failed:
+        if last_job is not None and last_job.status=='succeeded':
+            st.info('This FWI request already completed; the saved result is shown in the result panel.')
+        else:
+            st.info('This FWI request is already submitted; the result panel will keep watching the running job.')
+    if st.button(label,disabled=prepare_only or not preview.runnable or not feasible or submitted_not_failed):
         submit(api,JobCreateRequest(prompt=prompt,mode_hint='bounded_fwi',fwi_preparation_id=preview.preparation_id))
