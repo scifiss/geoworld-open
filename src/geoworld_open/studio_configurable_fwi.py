@@ -9,8 +9,32 @@ import streamlit as st
 
 from geoworld_open.client import GeoWorldClientError
 from geoworld_open.client.models import JobCreateRequest
-from geoworld_open.studio_execution import render_preflight
 from geoworld_open.studio_llm import execution_model_line
+
+
+def human_output_summary(outputs) -> str:
+    """Group typed artifact flags into concise, non-schema presentation labels."""
+    labels = []
+    if outputs.initial_velocity or outputs.recovered_velocity or outputs.velocity_update:
+        labels.append("Velocity models")
+    if outputs.observed_shot_gather or outputs.predicted_shot_gather or outputs.residual:
+        labels.append("Seismic gathers")
+    if outputs.objective_history:
+        labels.append("Objective history")
+    return " · ".join(labels) or "Scientific report"
+
+
+def recording_status_line(adequacy) -> str:
+    return f"Recording time {adequacy.adequacy} · {adequacy.recording_time_s:.2f} s"
+
+
+def recommendation_line(preview) -> str:
+    forward_low, forward_high = preview.forward.execution_plan.estimate.runtime_seconds
+    fwi_low, fwi_high = preview.execution_plan.estimate.runtime_seconds
+    device = preview.execution_plan.resolved_device.upper()
+    mode = preview.execution_plan.scientific_mode.replace("_", " ")
+    return (f"{device} · estimated {(forward_low + fwi_low) / 60:.1f}–"
+            f"{(forward_high + fwi_high) / 60:.1f} min · {mode}")
 
 
 def _preview_figure(preview):
@@ -89,12 +113,11 @@ def render_workspace(api, submit, *, prompt, auto_prepare=False, prepare_only=Fa
     with st.container(border=True):
         st.write(f"Dataset: Marmousi 1 · crop x={draft.model.x_start_m:g}–{draft.model.x_stop_m:g} m, "
                  f"z={draft.model.z_start_m:g}–{draft.model.z_stop_m:g} m")
-        st.write(f"Acquisition: {draft.acquisition.shots} shots × {draft.acquisition.receivers} receivers · "
-                 f"source/receiver depth {draft.acquisition.source_depth_m:g}/{draft.acquisition.receiver_depth_m:g} m")
-        st.write(f"Simple acoustic Vp FWI: {draft.inversion.updates} optimizer updates · "
-                 f"outputs: {', '.join(name for name, enabled in draft.requested_outputs.model_dump().items() if enabled)}")
+        st.write(f"Acquisition: {draft.acquisition.shots} shots × {draft.acquisition.receivers} receivers")
+        st.write(f"Inversion: {draft.inversion.updates} optimizer updates")
+        st.caption(human_output_summary(draft.requested_outputs))
         st.caption("Scientific classification: modified experiment. Deepwave computes the wavefields; AI only interprets the request.")
-    with st.expander("Advanced: typed conversation and verified user fields"):
+    with st.expander("Advanced: typed conversation history and verified fields"):
         st.json(draft.model_dump(mode="json"))
         for turn in state.visible_history:
             st.caption(turn.user_text + " → " + turn.assistant_summary)
@@ -124,47 +147,49 @@ def render_workspace(api, submit, *, prompt, auto_prepare=False, prepare_only=Fa
     model = preview.forward.model_preview
     values = np.asarray(model.values_zx)
     st.caption(f"Resolved crop: {model.shape_xz[0]} × {model.shape_xz[1]} cells, {model.spacing_m:g} m grid. "
-               f"Display Vp range {values.min():.0f}–{values.max():.0f} m/s; "
-               f"mean {values.mean():.0f} m/s. Full-resolution solver input SHA-256: {preview.forward.crop_vp_sha256}.")
-    st.caption(f"Geometry SHA-256: {preview.forward.geometry_sha256}. "
-               f"Source x: {preview.forward.resolved_acquisition.source_coordinates_xz_m[0][0]:g}–"
-               f"{preview.forward.resolved_acquisition.source_coordinates_xz_m[-1][0]:g} m; "
-               f"receiver x: {preview.forward.resolved_acquisition.receiver_coordinates_xz_m[0][0]:g}–"
-               f"{preview.forward.resolved_acquisition.receiver_coordinates_xz_m[-1][0]:g} m.")
+               f"Vp {values.min():.0f}–{values.max():.0f} m/s.")
     settings = preview.forward.experiment.settings
-    st.write(f"Resolved wavelet/record: {settings.source_frequency_hz:g} Hz Ricker, "
-             f"{settings.time_samples} samples at {settings.sample_interval_s * 1000:g} ms "
-             f"({settings.time_samples * settings.sample_interval_s:.3f} s); "
-             f"Ricker peak {settings.ricker_peak_time_s:g} s; float32, accuracy {settings.accuracy}.")
     adequacy = preview.forward.recording_time_adequacy
+    st.markdown("#### GeoWorld recommends")
     if adequacy:
-        message = (f"Recording-time adequacy: {adequacy.adequacy} · record {adequacy.recording_time_s:.3f} s · "
-                   f"conservative estimate {adequacy.estimated_required_time_s:.3f} s · "
-                   f"margin {adequacy.margin_s:+.3f} s · origin {adequacy.origin}.")
+        message = recording_status_line(adequacy)
         if adequacy.adequacy == "sufficient":
             st.success(message)
         elif adequacy.adequacy == "marginal":
             st.warning(message)
         else:
             st.error(message)
-        st.caption(adequacy.rationale)
-    with st.expander("Advanced: setting origins and exact scientific identities"):
+    st.write(recommendation_line(preview))
+    st.caption("Preview only · no solver has run.")
+    with st.expander("Advanced: scientific settings, identities and assumptions"):
         st.json(settings.model_dump(mode="json"))
+        st.write("Crop Vp SHA-256: " + preview.forward.crop_vp_sha256)
+        st.write("Geometry SHA-256: " + preview.forward.geometry_sha256)
         st.write("Acoustic settings SHA-256: " + preview.forward.settings_sha256)
+        geometry = preview.forward.resolved_acquisition
+        st.caption(f"Source x: {geometry.source_coordinates_xz_m[0][0]:g}–"
+                   f"{geometry.source_coordinates_xz_m[-1][0]:g} m; receiver x: "
+                   f"{geometry.receiver_coordinates_xz_m[0][0]:g}–"
+                   f"{geometry.receiver_coordinates_xz_m[-1][0]:g} m.")
         for assumption in preview.assumptions:
             st.caption(assumption)
-    st.markdown("#### GeoWorld recommends")
-    forward_estimate = preview.forward.execution_plan.estimate.runtime_seconds
-    fwi_estimate = preview.execution_plan.estimate.runtime_seconds
-    st.caption(f"Combined pre-run range: {(forward_estimate[0] + fwi_estimate[0]) / 60:.1f}–"
-               f"{(forward_estimate[1] + fwi_estimate[1]) / 60:.1f} min; confidence low. "
-               "Forward and FWI have separately measured live ETAs after Run.")
-    feasible = render_preflight(preview.execution_plan) and preview.forward.execution_plan.feasible
-    with st.expander("Advanced: forward plan and resource reserves"):
+    if adequacy:
+        with st.expander("Advanced: recording-time rationale"):
+            st.write(f"Record: {adequacy.recording_time_s:.3f} s · conservative estimate: "
+                     f"{adequacy.estimated_required_time_s:.3f} s · margin: {adequacy.margin_s:+.3f} s")
+            st.write(f"Origin: {adequacy.origin} · maximum offset: {adequacy.maximum_offset_m:g} m · "
+                     f"minimum Vp: {adequacy.minimum_vp_mps:g} m/s")
+            st.caption(adequacy.rationale)
+    feasible = preview.execution_plan.feasible and preview.forward.execution_plan.feasible
+    with st.expander("Advanced: execution plans, estimates and resource reserves"):
+        st.caption("FWI execution plan")
+        st.json(preview.execution_plan.model_dump(mode="json"))
+        st.caption("Forward execution plan")
         st.json(preview.forward.execution_plan.model_dump(mode="json"))
-    st.markdown("#### 3 · Forward modelling → 4 · FWI → 5 · Results")
-    st.caption(f"Forward: {draft.acquisition.shots} shot gathers. FWI: {draft.inversion.updates} completed optimizer updates. "
-               f"Display snapshots at {', '.join(map(str, preview.snapshot_schedule))} updates; no per-iteration image flood.")
+    if not feasible:
+        st.error("Resources are insufficient under the reserve policy. Nothing will run.")
+    st.markdown("#### 3 · Run")
+    st.caption(f"Forward modelling → {draft.inversion.updates}-update simple acoustic FWI → results")
     if prepare_only or draft.status == "prepare_only":
         st.info("Prepared only. Ask to run in a follow-up; preview cannot launch wave propagation.")
     same_submitted = (st.session_state.get("last_submitted_mode_hint") == "configurable_marmousi_fwi"
@@ -186,23 +211,39 @@ def render_result(api, job_id, result):
     objective_initial = custom.initial_data_objective or custom.objective_history[0]
     objective_final = custom.final_data_objective or custom.objective_history[-1]
     objective_reduction = metric_percent_change(objective_initial, objective_final)
-    st.metric("Receiver-data objective", f"{objective_final:.5g}",
-              delta=f"{objective_reduction:.1f}% reduction")
-    if custom.initial_velocity_rmse_mps is not None and custom.final_velocity_rmse_mps is not None:
+    objective_column, rmse_column = st.columns(2)
+    with objective_column:
+        st.metric("Receiver-data objective", f"{objective_final:.5g}",
+                  delta=f"{objective_reduction:.1f}% reduction")
+    has_rmse = custom.initial_velocity_rmse_mps is not None and custom.final_velocity_rmse_mps is not None
+    if has_rmse:
         rmse_change = metric_percent_change(
             custom.initial_velocity_rmse_mps, custom.final_velocity_rmse_mps
         )
         label = "improvement" if rmse_change >= 0 else "worsening"
-        st.metric("Velocity RMSE vs synthetic truth", f"{custom.final_velocity_rmse_mps:.2f} m/s",
-                  delta=f"{abs(rmse_change):.1f}% {label}",
-                  delta_color="normal" if rmse_change >= 0 else "inverse")
+        with rmse_column:
+            st.metric("Velocity RMSE vs synthetic truth", f"{custom.final_velocity_rmse_mps:.2f} m/s",
+                      delta=f"{abs(rmse_change):.1f}% {label}",
+                      delta_color="normal" if rmse_change >= 0 else "inverse")
         st.caption(f"Initial RMSE {custom.initial_velocity_rmse_mps:.2f} m/s → "
                    f"final RMSE {custom.final_velocity_rmse_mps:.2f} m/s. "
                    "Synthetic true Vp is evaluation-only and was excluded from the inversion objective.")
-    st.caption(f"Forward {custom.forward_runtime_seconds:.1f} s · FWI {custom.fwi_runtime_seconds:.1f} s · "
-               f"peak RAM {custom.peak_ram_mib:.0f} MiB · peak allocated VRAM {custom.peak_vram_mib:.0f} MiB.")
-    st.caption("Model, acquisition, settings and observed-data hashes are continuous from preview through forward and FWI.")
-    st.caption("Snapshot updates: " + ", ".join(map(str, custom.snapshot_schedule)))
+    with st.expander("Advanced: runtime, memory and reproducibility"):
+        st.write(f"Forward {custom.forward_runtime_seconds:.1f} s · FWI {custom.fwi_runtime_seconds:.1f} s · "
+                 f"peak RAM {custom.peak_ram_mib:.0f} MiB · peak allocated VRAM {custom.peak_vram_mib:.0f} MiB")
+        st.caption("Model, acquisition, settings and observed-data hashes are continuous from preview through forward and FWI.")
+        st.caption("Snapshot updates: " + ", ".join(map(str, custom.snapshot_schedule)))
+        st.json({
+            "crop_vp_sha256": custom.crop_vp_sha256,
+            "geometry_sha256": custom.geometry_sha256,
+            "settings_sha256": custom.settings_sha256,
+            "observed_shots_sha256": custom.observed_shots_sha256,
+            "predicted_shots_sha256": custom.predicted_shots_sha256,
+            "residual_shots_sha256": custom.residual_shots_sha256,
+            "initial_vp_sha256": custom.initial_vp_sha256,
+            "recovered_vp_sha256": custom.recovered_vp_sha256,
+            "true_vp_sha256": custom.true_vp_sha256,
+        })
     try:
         with np.load(BytesIO(api.get_artifact(job_id, "configurable_fwi_arrays.npz")), allow_pickle=False) as data:
             observed, predicted, residual = (data[name].copy() for name in
