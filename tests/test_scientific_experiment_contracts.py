@@ -69,3 +69,23 @@ def test_ready_and_prepare_only_status_require_matching_permission():
         ScientificExperimentDraft(execution_intent="prepare", status="ready")
     with pytest.raises(ValidationError):
         ScientificExperimentDraft(execution_intent="run", status="prepare_only")
+
+
+def test_conversation_status_requires_verified_issue_evidence():
+    with pytest.raises(ValidationError):
+        ConversationState(
+            conversation_id="b" * 32,
+            status="clarification_required",
+        )
+    with pytest.raises(ValidationError):
+        ConversationState(
+            conversation_id="b" * 32,
+            status="ready",
+            issues=["spurious model complaint"],
+        )
+    state = ConversationState(
+        conversation_id="b" * 32,
+        status="unsupported",
+        issues=["Canonical deterministic issue."],
+    )
+    assert state.status == "unsupported"

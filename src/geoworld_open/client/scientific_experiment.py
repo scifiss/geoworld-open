@@ -99,6 +99,14 @@ class ConversationState(ExecutionContract):
     status: ExperimentStatus
     issues: list[str] = Field(default_factory=list, max_length=20)
 
+    @model_validator(mode="after")
+    def status_has_canonical_issue_evidence(self):
+        if self.status in {"clarification_required", "unsupported"} and not self.issues:
+            raise ValueError("A blocked conversation state must explain its verified issue")
+        if self.status in {"ready", "prepare_only"} and self.issues:
+            raise ValueError("A validated conversation state cannot retain blocking issues")
+        return self
+
 
 class ExperimentConversationRequest(ExecutionContract):
     prompt: str = Field(min_length=1, max_length=8000)
