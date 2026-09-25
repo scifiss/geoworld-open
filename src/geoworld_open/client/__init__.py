@@ -26,6 +26,15 @@ from geoworld_open.client.scientific_experiment import (
     RequestedOutputs,
     ScientificExperimentDraft,
 )
+from geoworld_open.client.marmousi_forward import (
+    MarmousiAcquisitionRequest,
+    MarmousiForwardExperiment,
+    MarmousiForwardPreview,
+    MarmousiForwardPreviewRequest,
+    MarmousiForwardResult,
+    MarmousiForwardSettings,
+    ResolvedMarmousiAcquisition,
+)
 
 __all__ = [
     "AcquisitionRequest",
@@ -42,8 +51,15 @@ __all__ = [
     "JobResult",
     "JobStatusResponse",
     "LASQuicklookSettings",
+    "MarmousiAcquisitionRequest",
+    "MarmousiForwardExperiment",
+    "MarmousiForwardPreview",
+    "MarmousiForwardPreviewRequest",
+    "MarmousiForwardResult",
+    "MarmousiForwardSettings",
     "ModelSelection",
     "QACitation",
+    "ResolvedMarmousiAcquisition",
     "RequestedOutputs",
     "ScientificExperimentDraft",
     "UploadedLASFile",

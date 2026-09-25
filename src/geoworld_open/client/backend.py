@@ -142,6 +142,23 @@ class GeoWorldBackendClient:
         request = MarmousiPreviewRequest(selection=selection, project_id=project_id)
         return MarmousiPreview.model_validate(self._json_request("POST", "/models/marmousi/preview", request.model_dump(mode="json")))
 
+    def preview_marmousi_forward(self, experiment, *, project_id=None, preference=None):
+        from geoworld_open.client.execution import ExecutionPreference
+        from geoworld_open.client.marmousi_forward import (
+            MarmousiForwardPreview,
+            MarmousiForwardPreviewRequest,
+        )
+        request = MarmousiForwardPreviewRequest(
+            experiment=experiment,
+            project_id=project_id,
+            preference=preference or ExecutionPreference(),
+        )
+        return MarmousiForwardPreview.model_validate(
+            self._json_request(
+                "POST", "/models/marmousi/forward/preview", request.model_dump(mode="json")
+            )
+        )
+
     def interpret_marmousi(self, prompt, project_id=None):
         from geoworld_open.client.marmousi import MarmousiInterpretation, MarmousiInterpretRequest
         request = MarmousiInterpretRequest(prompt=prompt, project_id=project_id)
