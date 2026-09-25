@@ -36,7 +36,7 @@ class MarmousiForwardSettings(ReferenceContract):
 
     source_frequency_hz: Literal[25.0] = 25.0
     sample_interval_s: Literal[0.004] = 0.004
-    time_samples: Literal[300] = 300
+    time_samples: int = Field(default=300, ge=100, le=5000)
     ricker_peak_time_s: Literal[0.06] = 0.06
     accuracy: Literal[8] = 8
     pml_width: Literal[20] = 20
@@ -55,6 +55,16 @@ class MarmousiForwardSettings(ReferenceContract):
         if set(self.origins) != expected:
             raise ValueError("Every resolved acoustic setting needs exactly one origin")
         return self
+
+class RecordingTimeAdequacy(ReferenceContract):
+    recording_time_s: float = Field(gt=0)
+    estimated_required_time_s: float = Field(gt=0)
+    margin_s: float
+    adequacy: Literal["sufficient", "marginal", "insufficient"]
+    origin: Literal["user", "geoworld_default"]
+    maximum_offset_m: float = Field(ge=0)
+    minimum_vp_mps: float = Field(gt=0)
+    rationale: str = Field(min_length=1, max_length=1000)
 
 
 
@@ -130,6 +140,7 @@ class MarmousiForwardPreview(ReferenceContract):
     geometry_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     experiment_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     settings_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    recording_time_adequacy: RecordingTimeAdequacy | None = None
     execution_plan: ExecutionPlan
     preparation_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     solver_executed: Literal[False] = False
@@ -152,6 +163,7 @@ class MarmousiForwardResult(ReferenceContract):
     observed_shots_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     settings_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     settings: MarmousiForwardSettings
+    recording_time_adequacy: RecordingTimeAdequacy | None = None
     runtime_seconds: float = Field(ge=0.0)
     peak_memory_mib: float = Field(gt=0.0)
     artifacts: list[str]

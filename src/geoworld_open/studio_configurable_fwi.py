@@ -10,6 +10,7 @@ import streamlit as st
 from geoworld_open.client import GeoWorldClientError
 from geoworld_open.client.models import JobCreateRequest
 from geoworld_open.studio_execution import render_preflight
+from geoworld_open.studio_llm import execution_model_line
 
 
 def _preview_figure(preview):
@@ -36,6 +37,22 @@ def _preview_figure(preview):
     return figure
 
 
+def metric_percent_change(initial: float, final: float) -> float:
+    if initial <= 0:
+        return 0.0
+    return 100.0 * (initial - final) / initial
+
+
+def gather_figure(gather, *, receiver_x_m, time_s, limit, title):
+    figure = go.Figure(go.Heatmap(
+        x=receiver_x_m, y=time_s, z=gather.T, zmin=-limit, zmax=limit,
+        colorscale="Greys", colorbar=dict(title="Amplitude"),
+    ))
+    figure.update_layout(title=title, xaxis_title="Receiver x (m)", yaxis_title="Time (s)")
+    figure.update_yaxes(autorange="reversed")
+    return figure
+
+
 def render_workspace(api, submit, *, prompt, auto_prepare=False, prepare_only=False):
     st.subheader("Marmousi 1 · configurable forward → simple acoustic FWI")
     st.caption("Modified benchmark experiment. Forward observations are generated before inversion; this is not the official Deepwave FWI reference.")
@@ -48,6 +65,10 @@ def render_workspace(api, submit, *, prompt, auto_prepare=False, prepare_only=Fa
             with st.spinner("Understanding the request and resolving the crop; no solver is running…"):
                 response = api.continue_experiment(prompt)
                 st.session_state["configurable_fwi_conversation"] = response
+                if response.llm:
+                    st.session_state["last_preparation_model"] = execution_model_line(
+                        response.llm, purpose="Request interpretation"
+                    )
                 st.session_state.pop("configurable_fwi_preview", None)
                 if response.state.status in {"ready", "prepare_only"}:
                     st.session_state["configurable_fwi_preview"] = api.preview_configurable_fwi(
@@ -83,6 +104,10 @@ def render_workspace(api, submit, *, prompt, auto_prepare=False, prepare_only=Fa
         try:
             updated = api.continue_experiment(follow_up, conversation_id=state.conversation_id)
             st.session_state["configurable_fwi_conversation"] = updated
+            if updated.llm:
+                st.session_state["last_preparation_model"] = execution_model_line(
+                    updated.llm, purpose="Request interpretation"
+                )
             st.session_state.pop("configurable_fwi_preview", None)
             if updated.state.status in {"ready", "prepare_only"}:
                 st.session_state["configurable_fwi_preview"] = api.preview_configurable_fwi(
@@ -108,8 +133,21 @@ def render_workspace(api, submit, *, prompt, auto_prepare=False, prepare_only=Fa
                f"{preview.forward.resolved_acquisition.receiver_coordinates_xz_m[-1][0]:g} m.")
     settings = preview.forward.experiment.settings
     st.write(f"Resolved wavelet/record: {settings.source_frequency_hz:g} Hz Ricker, "
-             f"{settings.time_samples} samples at {settings.sample_interval_s * 1000:g} ms; "
+             f"{settings.time_samples} samples at {settings.sample_interval_s * 1000:g} ms "
+             f"({settings.time_samples * settings.sample_interval_s:.3f} s); "
              f"Ricker peak {settings.ricker_peak_time_s:g} s; float32, accuracy {settings.accuracy}.")
+    adequacy = preview.forward.recording_time_adequacy
+    if adequacy:
+        message = (f"Recording-time adequacy: {adequacy.adequacy} · record {adequacy.recording_time_s:.3f} s · "
+                   f"conservative estimate {adequacy.estimated_required_time_s:.3f} s · "
+                   f"margin {adequacy.margin_s:+.3f} s · origin {adequacy.origin}.")
+        if adequacy.adequacy == "sufficient":
+            st.success(message)
+        elif adequacy.adequacy == "marginal":
+            st.warning(message)
+        else:
+            st.error(message)
+        st.caption(adequacy.rationale)
     with st.expander("Advanced: setting origins and exact scientific identities"):
         st.json(settings.model_dump(mode="json"))
         st.write("Acoustic settings SHA-256: " + preview.forward.settings_sha256)
@@ -142,10 +180,25 @@ def render_workspace(api, submit, *, prompt, auto_prepare=False, prepare_only=Fa
 
 def render_result(api, job_id, result):
     custom = result.configurable_fwi
-    st.success(f"Forward complete · {custom.completed_updates} FWI updates · "
+    st.markdown("#### 5 · Results")
+    st.success(f"Forward complete · {custom.completed_updates} optimizer updates · "
                f"{custom.diagnostics['resolved_device'].upper()} · modified experiment")
-    st.write(f"Receiver-data objective before updates: {custom.objective_history[0]:.5g} → "
-             f"{custom.objective_history[-1]:.5g}. Lower loss alone is not proof of geological recovery.")
+    objective_initial = custom.initial_data_objective or custom.objective_history[0]
+    objective_final = custom.final_data_objective or custom.objective_history[-1]
+    objective_reduction = metric_percent_change(objective_initial, objective_final)
+    st.metric("Receiver-data objective", f"{objective_final:.5g}",
+              delta=f"{objective_reduction:.1f}% reduction")
+    if custom.initial_velocity_rmse_mps is not None and custom.final_velocity_rmse_mps is not None:
+        rmse_change = metric_percent_change(
+            custom.initial_velocity_rmse_mps, custom.final_velocity_rmse_mps
+        )
+        label = "improvement" if rmse_change >= 0 else "worsening"
+        st.metric("Velocity RMSE vs synthetic truth", f"{custom.final_velocity_rmse_mps:.2f} m/s",
+                  delta=f"{abs(rmse_change):.1f}% {label}",
+                  delta_color="normal" if rmse_change >= 0 else "inverse")
+        st.caption(f"Initial RMSE {custom.initial_velocity_rmse_mps:.2f} m/s → "
+                   f"final RMSE {custom.final_velocity_rmse_mps:.2f} m/s. "
+                   "Synthetic true Vp is evaluation-only and was excluded from the inversion objective.")
     st.caption(f"Forward {custom.forward_runtime_seconds:.1f} s · FWI {custom.fwi_runtime_seconds:.1f} s · "
                f"peak RAM {custom.peak_ram_mib:.0f} MiB · peak allocated VRAM {custom.peak_vram_mib:.0f} MiB.")
     st.caption("Model, acquisition, settings and observed-data hashes are continuous from preview through forward and FWI.")
@@ -154,16 +207,27 @@ def render_result(api, job_id, result):
         with np.load(BytesIO(api.get_artifact(job_id, "configurable_fwi_arrays.npz")), allow_pickle=False) as data:
             observed, predicted, residual = (data[name].copy() for name in
                                              ("observed_shots", "predicted_shots", "residual_shots"))
+            receiver_x_m = data["receiver_x_m"].copy()
+            time_s = data["time_s"].copy()
         shot = st.selectbox("Representative shot", range(1, observed.shape[0] + 1),
                             index=observed.shape[0] // 2, key="configurable_fwi_result_shot") - 1
-        limit = max(float(np.quantile(np.abs(np.stack([observed[shot], predicted[shot], residual[shot]])), .99)), 1e-12)
-        for name, gather in (("Observed", observed[shot]), ("Predicted", predicted[shot]),
-                             ("Residual = predicted − observed", residual[shot])):
-            figure = go.Figure(go.Heatmap(z=gather.T, zmin=-limit, zmax=limit,
-                                          colorscale="Greys", colorbar=dict(title="Amplitude")))
-            figure.update_layout(title=f"{name} shot {shot + 1} · common display scale",
-                                 xaxis_title="Receiver index", yaxis_title="Time sample")
-            figure.update_yaxes(autorange="reversed")
-            st.plotly_chart(figure, width="stretch")
+        common_limit = max(float(np.quantile(np.abs(np.stack([observed[shot], predicted[shot]])), .99)), 1e-12)
+        independent_residual = st.checkbox(
+            "Use independent residual display stretch",
+            value=False,
+            help="Display-only: does not alter saved arrays, hashes, objective, or inversion.",
+        )
+        residual_limit = (max(float(np.quantile(np.abs(residual[shot]), .99)), 1e-12)
+                          if independent_residual else common_limit)
+        for name, gather, limit in (
+            ("Observed", observed[shot], common_limit),
+            ("Predicted", predicted[shot], common_limit),
+            ("Residual = predicted − observed", residual[shot], residual_limit),
+        ):
+            scale = "independent residual scale" if name.startswith("Residual") and independent_residual else "common observed/predicted scale"
+            st.plotly_chart(gather_figure(
+                gather, receiver_x_m=receiver_x_m, time_s=time_s, limit=limit,
+                title=f"{name} shot {shot + 1} · {scale}",
+            ), width="stretch")
     except (GeoWorldClientError, ValueError, KeyError) as exc:
         st.warning(f"Shot-gather selector unavailable; saved figures and raw artifacts remain available: {exc}")

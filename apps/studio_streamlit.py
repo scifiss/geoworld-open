@@ -224,7 +224,8 @@ def poll_job(api: GeoWorldBackendClient, job_id: str, *, actual_stages=False, re
                         picture=api.get_artifact(job_id,latest[1])
                         if snapshot_slot is None:
                             snapshot_slot=st.empty()
-                        snapshot_slot.image(picture,caption=f'Intermediate FWI result after {latest[0]} {detail.unit.lower()}s; not the final result.',width='stretch')
+                        from geoworld_open.studio_fwi_snapshots import snapshot_caption
+                        snapshot_slot.image(picture, caption=snapshot_caption(latest[0], detail.total), width='stretch')
                         snapshot_step=latest[0]
                 except (GeoWorldClientError,ValueError):
                     # Before the first selected boundary, no index exists.
@@ -697,7 +698,10 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
         final_name=result.fwi.snapshots[-1]['figure_file']
         images=sorted(images,key=lambda artifact: artifact.name!=final_name)
     elif result.intent == 'configurable_marmousi_fwi':
-        images=sorted(images,key=lambda artifact: artifact.name!='configurable_fwi_result.png')
+        order = {"configurable_fwi_models.png": 0, "configurable_fwi_gathers.png": 1,
+                 "configurable_fwi_objective.png": 2}
+        images = sorted(images, key=lambda artifact: order.get(
+            artifact.name.rsplit("/", 1)[-1], 3))
 
     render_result_models(api, job_id, result)
     if result.intent in {"model_rtm", "model_forward"}:

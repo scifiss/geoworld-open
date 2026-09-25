@@ -79,6 +79,14 @@ def result_model_lines(
     trace: object = None,
     preparation: str | None = None,
 ) -> list[str]:
+    if result.intent == "configurable_marmousi_fwi" and result.configurable_fwi is not None:
+        lines = [preparation] if preparation else []
+        device = str(result.configurable_fwi.diagnostics.get("resolved_device", "unknown")).upper()
+        lines.extend([
+            f"Scientific computation: Deepwave 0.0.26 · {device}.",
+            "Result summary: deterministic from saved run metrics; no LLM-generated numerical result.",
+        ])
+        return lines
     if result.intent == 'bounded_fwi':
         records = _mapping(trace).get('capability_uses', [])
         evidence = next((_mapping(_mapping(item).get('diagnostics')).get('llm')

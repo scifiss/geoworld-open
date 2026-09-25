@@ -33,6 +33,7 @@ from geoworld_open.client.marmousi_forward import (
     MarmousiForwardPreviewRequest,
     MarmousiForwardResult,
     MarmousiForwardSettings,
+    RecordingTimeAdequacy,
     ResolvedMarmousiAcquisition,
 )
 
@@ -57,6 +58,7 @@ __all__ = [
     "MarmousiForwardPreviewRequest",
     "MarmousiForwardResult",
     "MarmousiForwardSettings",
+    "RecordingTimeAdequacy",
     "ModelSelection",
     "QACitation",
     "ResolvedMarmousiAcquisition",

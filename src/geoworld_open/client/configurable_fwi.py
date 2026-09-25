@@ -56,6 +56,11 @@ class ConfigurableFWIResult(ReferenceContract):
     residual_shots_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     initial_vp_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     recovered_vp_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    true_vp_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    initial_data_objective: float | None = Field(default=None, ge=0)
+    final_data_objective: float | None = Field(default=None, ge=0)
+    initial_velocity_rmse_mps: float | None = Field(default=None, ge=0)
+    final_velocity_rmse_mps: float | None = Field(default=None, ge=0)
     completed_updates: int = Field(ge=1, le=250)
     objective_history: list[float]
     snapshot_schedule: list[int]
@@ -73,4 +78,6 @@ class ConfigurableFWIResult(ReferenceContract):
                 raise ValueError(f"FWI input {name} differs from forward output")
         if self.completed_updates != len(self.objective_history):
             raise ValueError("Objective history does not cover every completed update")
+        if self.true_vp_sha256 is not None and self.true_vp_sha256 != self.crop_vp_sha256:
+            raise ValueError("Synthetic truth differs from the approved crop")
         return self

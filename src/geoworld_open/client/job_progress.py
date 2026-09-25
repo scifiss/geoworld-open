@@ -10,7 +10,7 @@ class JobProgress(BaseModel):
     phase: Literal["preparing", "born", "backward", "rtm_batches", "finalizing", "fwi_iterations", "forward_shots"]
     completed: int = Field(ge=0)
     total: int = Field(gt=0)
-    unit: Literal["RTM batch", "FWI iteration", "LBFGS outer step", "shot"] = "RTM batch"
+    unit: Literal["RTM batch", "FWI iteration", "LBFGS outer step", "optimizer update", "shot"] = "RTM batch"
     elapsed_s: float = Field(ge=0)
     eta_s: float | None = Field(default=None, ge=0)
     # ETA describes the remaining batches, not export/comparison/database work.

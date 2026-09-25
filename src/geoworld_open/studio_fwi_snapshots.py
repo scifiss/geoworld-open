@@ -3,6 +3,18 @@ import json
 import re
 
 
+def snapshot_caption(completed: int, total: int) -> str:
+    """Label saved optimizer-update images without mislabelling the final one."""
+    if completed < 1 or total < 1 or completed > total:
+        raise ValueError("Invalid optimizer-update boundary")
+    if completed == total:
+        return f"Final FWI result after {completed}/{total} optimizer updates."
+    return (
+        f"Intermediate FWI result after {completed}/{total} optimizer updates; "
+        "not the final result."
+    )
+
+
 def should_check_snapshot(completed, previous_completed, now, previous_check):
     """Retry after snapshot serialization even if the next outer step is long."""
     return completed>0 and (completed!=previous_completed or previous_check is None or now-previous_check>=5.)

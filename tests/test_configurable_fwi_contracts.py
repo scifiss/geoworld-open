@@ -26,6 +26,9 @@ def test_settings_have_bounded_values_and_origin_for_every_value():
     assert set(settings.origins) == set(type(settings).model_fields) - {"origins"}
     with pytest.raises(ValidationError):
         MarmousiForwardSettings(source_frequency_hz=10)
+    assert MarmousiForwardSettings(time_samples=575).time_samples == 575
+    with pytest.raises(ValidationError):
+        MarmousiForwardSettings(time_samples=99)
     with pytest.raises(ValidationError):
         MarmousiForwardSettings(origins={"source_frequency_hz": "user_request"})
 
