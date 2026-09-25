@@ -32,16 +32,30 @@ class MarmousiAcquisitionRequest(ReferenceContract):
 
 
 class MarmousiForwardSettings(ReferenceContract):
-    """Fixed bounded science for this slice, recorded rather than inferred."""
+    """One bounded, resolved acoustic setting set used by preview and solvers."""
 
-    source_frequency_hz: Literal[10.0] = 10.0
+    source_frequency_hz: Literal[25.0] = 25.0
     sample_interval_s: Literal[0.004] = 0.004
-    time_samples: Literal[400] = 400
-    ricker_peak_time_s: Literal[0.15] = 0.15
+    time_samples: Literal[300] = 300
+    ricker_peak_time_s: Literal[0.06] = 0.06
     accuracy: Literal[8] = 8
     pml_width: Literal[20] = 20
     precision: Literal["float32"] = "float32"
     solver: Literal["deepwave_scalar_0.0.26"] = "deepwave_scalar_0.0.26"
+    origins: dict[str, Literal["user_request", "geoworld_validated_default"]] = Field(
+        default_factory=lambda: {name: "geoworld_validated_default" for name in (
+            "source_frequency_hz", "sample_interval_s", "time_samples", "ricker_peak_time_s",
+            "accuracy", "pml_width", "precision", "solver",
+        )}
+    )
+
+    @model_validator(mode="after")
+    def origins_cover_resolved_values(self):
+        expected = set(type(self).model_fields) - {"origins"}
+        if set(self.origins) != expected:
+            raise ValueError("Every resolved acoustic setting needs exactly one origin")
+        return self
+
 
 
 class MarmousiForwardExperiment(ReferenceContract):
@@ -115,6 +129,7 @@ class MarmousiForwardPreview(ReferenceContract):
     crop_vp_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     geometry_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     experiment_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    settings_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     execution_plan: ExecutionPlan
     preparation_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     solver_executed: Literal[False] = False
@@ -135,6 +150,7 @@ class MarmousiForwardResult(ReferenceContract):
     geometry_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     wavelet_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     observed_shots_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    settings_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     settings: MarmousiForwardSettings
     runtime_seconds: float = Field(ge=0.0)
     peak_memory_mib: float = Field(gt=0.0)

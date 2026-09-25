@@ -179,10 +179,13 @@ def poll_job(api: GeoWorldBackendClient, job_id: str, *, actual_stages=False, re
     progress = st.empty()
     status = st.empty()
     timing = st.empty()
+    forward_slot = st.empty()
+    forward_displayed = False
     snapshot_slot = None
     snapshot_step = None
     snapshot_checked_at = None
     snapshot_checked_step = None
+    session_state = getattr(st, 'session_state', {})
     for index in range(2440 if reference else 120):
         job = api.get_job(job_id)
         status.info(job.progress)
@@ -191,6 +194,23 @@ def poll_job(api: GeoWorldBackendClient, job_id: str, *, actual_stages=False, re
             fraction, label, caption = progress_labels(detail, running=job.status == "running")
             progress.progress(fraction, text=label)
             timing.caption(caption)
+            if (session_state.get('last_submitted_mode_hint') == 'configurable_marmousi_fwi'
+                    and detail.phase == 'fwi_iterations' and not forward_displayed):
+                try:
+                    import json
+                    forward_result = json.loads(api.get_artifact(job_id, 'marmousi_forward_result.json'))
+                    diagnostic = forward_result['diagnostics']
+                    picture = api.get_artifact(job_id, 'marmousi_forward.png')
+                    with forward_slot.container():
+                        st.markdown('#### 3 · Forward modelling complete')
+                        st.image(picture, caption='Observed representative shot gather and approved crop/acquisition', width='stretch')
+                        st.caption(f"{forward_result['runtime_seconds']:.1f} s · {diagnostic['resolved_device'].upper()} · "
+                                   f"amplitude min/max {diagnostic.get('observed_amplitude_min', 0):.3g}/"
+                                   f"{diagnostic.get('observed_amplitude_max', 0):.3g} · "
+                                   f"RMS {diagnostic.get('observed_amplitude_rms', 0):.3g}")
+                    forward_displayed = True
+                except (GeoWorldClientError, KeyError, ValueError):
+                    pass
             from geoworld_open.studio_fwi_snapshots import should_check_snapshot
             if (reference and detail.phase=='fwi_iterations'
                     and should_check_snapshot(detail.completed,snapshot_checked_step,time.monotonic(),snapshot_checked_at)):
@@ -198,7 +218,8 @@ def poll_job(api: GeoWorldBackendClient, job_id: str, *, actual_stages=False, re
                 snapshot_checked_step=detail.completed
                 try:
                     from geoworld_open.studio_fwi_snapshots import latest_snapshot
-                    latest=latest_snapshot(api,job_id,detail.completed)
+                    latest=latest_snapshot(api,job_id,detail.completed,
+                        configurable=session_state.get('last_submitted_mode_hint')=='configurable_marmousi_fwi')
                     if latest and latest[0]!=snapshot_step:
                         picture=api.get_artifact(job_id,latest[1])
                         if snapshot_slot is None:
@@ -249,7 +270,7 @@ def submit_and_wait(api: GeoWorldBackendClient, request: JobCreateRequest) -> No
     st.session_state["last_result_source"] = "submitted"
     st.session_state["last_submitted_mode_hint"] = request.mode_hint
     st.session_state["last_job"] = (poll_job(api, created.job_id, actual_stages=True, reference=True)
-                                   if request.mode_hint in {"deepwave_reference", "bounded_fwi"} else poll_job(api, created.job_id, actual_stages=True)
+                                   if request.mode_hint in {"deepwave_reference", "bounded_fwi", "configurable_marmousi_fwi"} else poll_job(api, created.job_id, actual_stages=True)
                                    if request.mode_hint in {"model_rtm", "model_forward"} else poll_job(api, created.job_id))
 
 
@@ -628,13 +649,13 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
     if not job_id:
         return
     reconnect_mode = st.session_state.get("last_submitted_mode_hint")
-    if job is None and reconnect_mode in {"deepwave_reference", "bounded_fwi", "model_rtm", "model_forward", "ask_question", "build_model"}:
+    if job is None and reconnect_mode in {"deepwave_reference", "bounded_fwi", "configurable_marmousi_fwi", "model_rtm", "model_forward", "ask_question", "build_model"}:
         try:
             job = api.get_job(job_id)
             st.session_state["last_job"] = job
             if job.status in {"queued", "running"}:
                 st.info("Reconnected to the running job after the page rerun.")
-                st.session_state["last_job"] = poll_job(api, job_id, actual_stages=True, reference=reconnect_mode in {"deepwave_reference", "bounded_fwi"})
+                st.session_state["last_job"] = poll_job(api, job_id, actual_stages=True, reference=reconnect_mode in {"deepwave_reference", "bounded_fwi", "configurable_marmousi_fwi"})
                 job = st.session_state["last_job"]
         except GeoWorldClientError as exc:
             st.warning(f"Could not reconnect to the submitted job: {exc}")
@@ -675,6 +696,8 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
         # accessible in Model & Figures and as raw downloadable artifacts.
         final_name=result.fwi.snapshots[-1]['figure_file']
         images=sorted(images,key=lambda artifact: artifact.name!=final_name)
+    elif result.intent == 'configurable_marmousi_fwi':
+        images=sorted(images,key=lambda artifact: artifact.name!='configurable_fwi_result.png')
 
     render_result_models(api, job_id, result)
     if result.intent in {"model_rtm", "model_forward"}:
@@ -697,6 +720,9 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
             st.write(f'Evaluation-only velocity RMSE: {result.fwi.initial_velocity_rmse:.2f} → {result.fwi.final_velocity_rmse:.2f} m/s')
             st.caption('Synthetic truth is not part of the inversion objective. Lower data loss alone does not demonstrate geological recovery.')
         st.caption('OUTPUT: current velocity and update, not an RTM image or elastic inversion. Checkpoint and raw arrays are in Artifacts.')
+    elif result.intent == 'configurable_marmousi_fwi' and result.configurable_fwi:
+        from geoworld_open.studio_configurable_fwi import render_result
+        render_result(api, job_id, result)
     with st.expander("Job details"):
         st.write(f"**Job:** `{job_id}`")
         if correlation_id:

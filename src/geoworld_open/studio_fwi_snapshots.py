@@ -8,8 +8,9 @@ def should_check_snapshot(completed, previous_completed, now, previous_check):
     return completed>0 and (completed!=previous_completed or previous_check is None or now-previous_check>=5.)
 
 
-def latest_snapshot(api, job_id, completed):
-    raw=api.get_artifact(job_id,'fwi/snapshots.json')
+def latest_snapshot(api, job_id, completed, *, configurable=False):
+    index = 'configurable_fwi_snapshots.json' if configurable else 'fwi/snapshots.json'
+    raw=api.get_artifact(job_id,index)
     if len(raw)>32768:
         raise ValueError('Snapshot index exceeds display limit')
     values=json.loads(raw)
@@ -21,9 +22,10 @@ def latest_snapshot(api, job_id, completed):
             raise ValueError('Invalid snapshot entry')
         step=value.get('completed')
         name=value.get('figure_file')
+        pattern = r'configurable_fwi_snapshot_[0-9]{4}\.png' if configurable else r'snapshot_[0-9]{4}\.png'
         if (type(step) is not int or not 1<=step<=250 or not isinstance(name,str)
-                or re.fullmatch(r'snapshot_[0-9]{4}\.png',name) is None):
+                or re.fullmatch(pattern,name) is None):
             raise ValueError('Invalid snapshot artifact')
         if step<=completed:
-            valid.append((step,'fwi/'+name))
+            valid.append((step,name if configurable else 'fwi/'+name))
     return max(valid,default=None)

@@ -72,6 +72,7 @@ class ScientificExperimentDraft(ExecutionContract):
     status: ExperimentStatus = "prepare_only"
     issues: list[str] = Field(default_factory=list, max_length=20)
     revision: int = Field(default=1, ge=1)
+    explicit_fields: list[str] = Field(default_factory=list, max_length=40)
 
     @model_validator(mode="after")
     def status_matches_execution_intent(self):

@@ -57,7 +57,8 @@ def render_request(api, submit, render_las):
     if st.button("Interpret request", type="primary", disabled=not prompt.strip()):
         for key in ("studio_decision", "studio_prepare_attempted", "studio_request_error", "prepared_preview",
                     "reference_preview", "rtm_preview", "marmousi_interpretation", "marmousi_base", "marmousi_preview",
-                    "marmousi_load_error", "unified_fallback_confirmed", "rtm_model_approved", "fwi_preview", "fwi_prompt"):
+                    "marmousi_load_error", "unified_fallback_confirmed", "rtm_model_approved", "fwi_preview", "fwi_prompt",
+                    "configurable_fwi_conversation", "configurable_fwi_preview", "configurable_fwi_prompt"):
             st.session_state.pop(key, None)
         st.session_state["studio_request_prompt"] = prompt
         try:
@@ -100,6 +101,10 @@ def render_request(api, submit, render_las):
     elif decision.route == 'bounded_fwi':
         from geoworld_open.studio_fwi import render_fwi_workspace
         render_fwi_workspace(api, submit, prompt=prompt, auto_prepare=prepare, prepare_only=prepare_only)
+    elif decision.route == "configurable_marmousi_fwi":
+        from geoworld_open.studio_configurable_fwi import render_workspace
+        render_workspace(api, submit, prompt=prompt, auto_prepare=prepare,
+                         prepare_only=prepare_only)
     elif decision.route in {"model_rtm", "model_forward"}:
         from geoworld_open.studio_rtm import render_rtm_workspace
         render_rtm_workspace(api, submit, prompt=prompt, auto_prepare=prepare, prepare_only=prepare_only,

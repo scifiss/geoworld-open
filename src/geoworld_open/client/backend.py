@@ -159,6 +159,22 @@ class GeoWorldBackendClient:
             )
         )
 
+    def preview_configurable_fwi(self, experiment, *, project_id=None, preference=None, intermediate_results=None):
+        from geoworld_open.client.configurable_fwi import ConfigurableFWIPreview, ConfigurableFWIPreviewRequest
+        from geoworld_open.client.execution import ExecutionPreference
+        from geoworld_open.client.intermediate_results import IntermediateResultPolicy
+        request = ConfigurableFWIPreviewRequest(
+            experiment=experiment,
+            project_id=project_id,
+            preference=preference or ExecutionPreference(),
+            intermediate_results=intermediate_results or IntermediateResultPolicy(),
+        )
+        return ConfigurableFWIPreview.model_validate(
+            self._json_request(
+                "POST", "/fwi/configurable/preview", request.model_dump(mode="json")
+            )
+        )
+
     def interpret_marmousi(self, prompt, project_id=None):
         from geoworld_open.client.marmousi import MarmousiInterpretation, MarmousiInterpretRequest
         request = MarmousiInterpretRequest(prompt=prompt, project_id=project_id)

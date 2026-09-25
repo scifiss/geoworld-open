@@ -146,6 +146,7 @@ def test_preview_and_result_bind_hashes():
         crop_vp_sha256="a" * 64,
         geometry_sha256="b" * 64,
         experiment_sha256="d" * 64,
+        settings_sha256="c" * 64,
         execution_plan=plan(),
         preparation_id="e" * 32,
     )
@@ -157,6 +158,7 @@ def test_preview_and_result_bind_hashes():
         geometry_sha256=preview.geometry_sha256,
         wavelet_sha256="f" * 64,
         observed_shots_sha256="1" * 64,
+        settings_sha256=preview.settings_sha256,
         settings=preview.experiment.settings,
         runtime_seconds=1.0,
         peak_memory_mib=1.0,
@@ -178,6 +180,7 @@ def test_sdk_preview_uses_authenticated_typed_endpoint():
         crop_vp_sha256="a" * 64,
         geometry_sha256="b" * 64,
         experiment_sha256="d" * 64,
+        settings_sha256="c" * 64,
         execution_plan=plan(),
         preparation_id="e" * 32,
     )
