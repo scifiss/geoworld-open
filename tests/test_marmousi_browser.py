@@ -37,8 +37,8 @@ def test_rectangle_updates_crop_controls(tmp_path):
                 page.wait_for_function("document.querySelector('.js-plotly-plot')._fullLayout !== undefined")
                 coords = plot.evaluate("""node => {
                     const r=node.getBoundingClientRect(), x=node._fullLayout.xaxis, y=node._fullLayout.yaxis;
-                    return {x1:r.x+x._offset+x.l2p(20), y1:r.y+y._offset+y.l2p(10),
-                            x2:r.x+x._offset+x.l2p(80), y2:r.y+y._offset+y.l2p(40)};
+                    return {x1:r.x+x._offset+x.l2p(23), y1:r.y+y._offset+y.l2p(12),
+                            x2:r.x+x._offset+x.l2p(77), y2:r.y+y._offset+y.l2p(38)};
                 }""")
                 page.mouse.move(coords["x1"], coords["y1"])
                 page.mouse.down()
@@ -46,9 +46,11 @@ def test_rectangle_updates_crop_controls(tmp_path):
                 page.mouse.up()
                 page.get_by_role("button", name="Use selected rectangle").click(timeout=15000)
                 xstart = page.get_by_label("X start (m)", exact=True)
-                page.wait_for_function("Array.from(document.querySelectorAll('input')).some(n => Number(n.value)>18 && Number(n.value)<22)")
-                assert float(xstart.input_value()) == pytest.approx(20, abs=1)
-                assert float(page.get_by_label("Z stop (m)", exact=True).input_value()) == pytest.approx(40, abs=1)
+                page.wait_for_function("Array.from(document.querySelectorAll('input')).some(n => Number(n.value) === 20)")
+                assert float(xstart.input_value()) == 20.
+                assert float(page.get_by_label("X stop (m)", exact=True).input_value()) == 80.
+                assert float(page.get_by_label("Z start (m)", exact=True).input_value()) == 10.
+                assert float(page.get_by_label("Z stop (m)", exact=True).input_value()) == 40.
                 assert page.locator('[data-testid="stException"]').count() == 0
                 page.screenshot(path=str(tmp_path / "marmousi-crop.png"), full_page=True)
                 browser.close()
