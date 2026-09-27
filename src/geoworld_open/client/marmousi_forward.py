@@ -82,11 +82,21 @@ class MarmousiForwardExperiment(ReferenceContract):
             depth = getattr(self.acquisition, name)
             if not self.crop.z_start_m <= depth <= self.crop.z_stop_m:
                 raise ValueError(f"{name} must lie inside the requested crop")
-        start = math.ceil(self.crop.x_start_m / MARMOUSI1_SPACING_M)
-        stop = math.floor(self.crop.x_stop_m / MARMOUSI1_SPACING_M)
+        def inward(value, *, start):
+            scaled = value / MARMOUSI1_SPACING_M
+            tolerance = 1e-10 * max(1.0, abs(scaled))
+            return (math.ceil(scaled - tolerance) if start
+                    else math.floor(scaled + tolerance))
+
+        start = inward(self.crop.x_start_m, start=True)
+        stop = inward(self.crop.x_stop_m, start=False)
         available_x = stop - start + 1
         if available_x < 2:
             raise ValueError("Crop must contain at least two original Marmousi 1 x samples")
+        z_start = inward(self.crop.z_start_m, start=True)
+        z_stop = inward(self.crop.z_stop_m, start=False)
+        if z_stop - z_start + 1 < 2:
+            raise ValueError("Crop must contain at least two original Marmousi 1 z samples")
         if self.acquisition.number_of_shots > available_x:
             raise ValueError("Shot count exceeds unique grid locations in the crop")
         if self.acquisition.receivers_per_shot > available_x:

@@ -55,6 +55,11 @@ def render_request(api, submit, render_las):
                     "Marmousi 2 and Deepwave numerical runs require the enabled local backend and installed data. "
                     "The first Marmousi 1 preview may take a few seconds to download and verify its published files.")
     if st.button("Interpret request", type="primary", disabled=not prompt.strip()):
+        # Model-explorer widgets are below this control, so clearing their
+        # prior keys here is safe and prevents prompt/manual state crossover.
+        for key in list(st.session_state):
+            if key.startswith("marmousi_"):
+                st.session_state.pop(key, None)
         for key in ("studio_decision", "studio_prepare_attempted", "studio_request_error", "prepared_preview",
                     "reference_preview", "rtm_preview", "marmousi_interpretation", "marmousi_base", "marmousi_preview",
                     "marmousi_load_error", "unified_fallback_confirmed", "rtm_model_approved", "fwi_preview", "fwi_prompt",

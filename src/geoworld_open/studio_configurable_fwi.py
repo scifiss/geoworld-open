@@ -1,6 +1,7 @@
 """HTTP-only scientific stepper for a prepared Marmousi crop and simple FWI."""
 from __future__ import annotations
 
+import hashlib
 from io import BytesIO
 
 import numpy as np
@@ -10,6 +11,25 @@ import streamlit as st
 from geoworld_open.client import GeoWorldClientError
 from geoworld_open.client.models import JobCreateRequest
 from geoworld_open.studio_llm import execution_model_line
+
+
+def experiment_submission_identity(draft) -> str:
+    """Stable UI identity for duplicate protection; not a scientific hash."""
+    return hashlib.sha256(draft.model_dump_json().encode()).hexdigest()
+
+
+def submitted_experiment_is_active(session, prompt, draft) -> bool:
+    """Block only the same nonfailed experiment, never a revision or retry."""
+    if not (
+        session.get("last_submitted_mode_hint") == "configurable_marmousi_fwi"
+        and session.get("last_submitted_prompt") == prompt
+        and session.get("last_job_id")
+        and session.get("last_submitted_experiment_sha256")
+        == experiment_submission_identity(draft)
+    ):
+        return False
+    job = session.get("last_job")
+    return job is None or job.status != "failed"
 
 
 def human_output_summary(outputs) -> str:
@@ -192,9 +212,7 @@ def render_workspace(api, submit, *, prompt, auto_prepare=False, prepare_only=Fa
     st.caption(f"Forward modelling → {draft.inversion.updates}-update simple acoustic FWI → results")
     if prepare_only or draft.status == "prepare_only":
         st.info("Prepared only. Ask to run in a follow-up; preview cannot launch wave propagation.")
-    same_submitted = (st.session_state.get("last_submitted_mode_hint") == "configurable_marmousi_fwi"
-                      and st.session_state.get("last_submitted_prompt") == prompt
-                      and st.session_state.get("last_job_id"))
+    same_submitted = submitted_experiment_is_active(st.session_state, prompt, draft)
     if same_submitted:
         st.info("This experiment is already submitted. The measured-progress panel and saved result remain available.")
     if st.button("Run forward → simple FWI", disabled=not preview.runnable or not feasible or prepare_only or bool(same_submitted)):

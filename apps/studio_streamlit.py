@@ -132,6 +132,7 @@ def clear_last_result() -> None:
         "last_submitted_prompt", "clean_report",
         "last_preparation_model", "last_result_models", "rtm_replay",
         "last_result_source", "last_submitted_mode_hint",
+        "last_submitted_experiment_sha256",
     ):
         st.session_state.pop(key, None)
 
@@ -270,6 +271,11 @@ def submit_and_wait(api: GeoWorldBackendClient, request: JobCreateRequest) -> No
     st.session_state["last_correlation_id"] = created.correlation_id
     st.session_state["last_result_source"] = "submitted"
     st.session_state["last_submitted_mode_hint"] = request.mode_hint
+    if request.configurable_fwi_experiment is not None:
+        from geoworld_open.studio_configurable_fwi import experiment_submission_identity
+        st.session_state["last_submitted_experiment_sha256"] = (
+            experiment_submission_identity(request.configurable_fwi_experiment)
+        )
     st.session_state["last_job"] = (poll_job(api, created.job_id, actual_stages=True, reference=True)
                                    if request.mode_hint in {"deepwave_reference", "bounded_fwi", "configurable_marmousi_fwi"} else poll_job(api, created.job_id, actual_stages=True)
                                    if request.mode_hint in {"model_rtm", "model_forward"} else poll_job(api, created.job_id))

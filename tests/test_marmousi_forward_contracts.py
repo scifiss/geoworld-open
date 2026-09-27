@@ -138,6 +138,27 @@ def test_contract_rejects_invalid_crop_or_acquisition(value):
         MarmousiForwardExperiment.model_validate(value)
 
 
+def test_grid_boundary_roundoff_is_stable_but_tiny_z_crop_is_rejected():
+    stable = experiment()
+    stable.crop = ModelCrop(
+        x_start_m=1000.0 + 1e-10,
+        x_stop_m=3400.0 - 1e-10,
+        z_start_m=1e-10,
+        z_stop_m=1000.0 - 1e-10,
+    )
+    assert MarmousiForwardExperiment.model_validate(stable.model_dump()).crop == stable.crop
+
+    with pytest.raises(ValidationError, match="two original Marmousi 1 z samples"):
+        MarmousiForwardExperiment(
+            crop=ModelCrop(
+                x_start_m=0., x_stop_m=100., z_start_m=0.1, z_stop_m=3.9,
+            ),
+            acquisition=MarmousiAcquisitionRequest(
+                source_depth_m=1., receiver_depth_m=1.,
+            ),
+        )
+
+
 def test_preview_and_result_bind_hashes():
     preview = MarmousiForwardPreview(
         experiment=experiment(),
