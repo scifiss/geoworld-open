@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from types import SimpleNamespace
 
 from geoworld_open.client.models import JobResult
 from geoworld_open.studio_llm import (
@@ -106,3 +107,21 @@ def test_deterministic_or_denied_paths(intent, mode, label):
 ])
 def test_preparation_distinguishes_deterministic_modes(mode, label):
     assert preparation_model_line({"interpretation_mode": mode}) == label
+
+
+def test_configurable_fwi_separates_interpretation_computation_and_summary():
+    result = JobResult.model_construct(
+        intent="configurable_marmousi_fwi",
+        configurable_fwi=SimpleNamespace(diagnostics={"resolved_device": "cuda"}),
+    )
+    assert result_model_lines(result, preparation=(
+        "Request interpretation: Amazon Bedrock · us.amazon.nova-2-lite-v1:0"
+    )) == [
+        "Request interpretation: Amazon Bedrock · us.amazon.nova-2-lite-v1:0",
+        "Scientific computation: Deepwave 0.0.26 · CUDA.",
+        "Result summary: deterministic from saved run metrics; no LLM-generated numerical result.",
+    ]
+    assert result_model_lines(result) == [
+        "Scientific computation: Deepwave 0.0.26 · CUDA.",
+        "Result summary: deterministic from saved run metrics; no LLM-generated numerical result.",
+    ]

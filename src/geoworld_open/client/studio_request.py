@@ -19,6 +19,6 @@ class StudioIntent(ReferenceContract):
 
 class StudioDecision(ReferenceContract):
     interpretation: StudioIntent
-    route: Literal["ask_question", "build_model", "marmousi_model", "deepwave_reference", "model_rtm", "model_forward", "bounded_fwi", "las_quicklook", "blocked"]
+    route: Literal["ask_question", "build_model", "marmousi_model", "deepwave_reference", "model_rtm", "model_forward", "bounded_fwi", "configurable_marmousi_fwi", "las_quicklook", "blocked"]
     message: str
     llm: dict[str, Any] | None = None

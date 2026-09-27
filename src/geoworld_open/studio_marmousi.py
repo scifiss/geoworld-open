@@ -9,11 +9,30 @@ from geoworld_open.client.models import JobCreateRequest
 from geoworld_open.studio_llm import execution_model_line
 
 
+_OVERRIDE_DEFAULTS = {
+    "vp_m_s": 3000.0,
+    "vs_m_s": 1500.0,
+    "density_kg_m3": 2300.0,
+    "porosity_fraction": 0.2,
+}
+
+
 def box_crop(box, extent):
-    """Normalize plot coordinates; reject invalid/outside selections server-side too."""
+    """Normalize and clip display coordinates before backend resolution."""
     xs, zs = sorted(box["x"]), sorted(box["y"])
     return ModelCrop(x_start_m=max(extent.x_start_m, xs[0]), x_stop_m=min(extent.x_stop_m, xs[-1]),
                      z_start_m=max(extent.z_start_m, zs[0]), z_stop_m=min(extent.z_stop_m, zs[-1]))
+
+
+def resolve_box_crop(api, dataset, box, extent):
+    """Resolve an interactive rectangle through the canonical backend crop path."""
+    requested = box_crop(box, extent)
+    selection = MarmousiSelection(
+        dataset=dataset,
+        crop=None if requested == extent else requested,
+        display_property="vp",
+    )
+    return api.preview_marmousi(selection).resolved_crop
 
 
 def model_figure(preview, *, selectable=False):
@@ -35,15 +54,29 @@ def model_figure(preview, *, selectable=False):
     return fig
 
 
-def _set_controls(selection, extent):
-    st.session_state["marmousi_dataset"] = selection.dataset
+def _set_controls(selection, extent, *, set_dataset=True):
+    if set_dataset:
+        st.session_state["marmousi_dataset"] = selection.dataset
     st.session_state["marmousi_property"] = selection.display_property
     for key, value in (selection.crop or extent).model_dump().items():
         st.session_state["marmousi_" + key] = value
     for key, value in selection.overrides.model_dump().items():
         st.session_state["marmousi_enable_" + key] = value is not None
-        if value is not None:
-            st.session_state["marmousi_" + key] = value
+        st.session_state["marmousi_" + key] = (
+            value if value is not None else _OVERRIDE_DEFAULTS[key]
+        )
+
+
+def _discard_loaded_model():
+    """Drop display state that must never survive a new model identity."""
+    for key in (
+        "marmousi_base", "marmousi_preview", "marmousi_load_error",
+        "marmousi_box_signature", "marmousi_box_resolved",
+    ):
+        st.session_state.pop(key, None)
+    st.session_state["marmousi_map_generation"] = (
+        st.session_state.get("marmousi_map_generation", 0) + 1
+    )
 
 
 def render_model_workspace(api, submit, *, prompt=None, auto_prepare=False):
@@ -52,14 +85,14 @@ def render_model_workspace(api, submit, *, prompt=None, auto_prepare=False):
     st.caption("Load an existing Marmousi 1 or 2 model, inspect it, then crop in metres. This is separate from exact-reference RTM; no solver runs here.")
     if not unified:
         prompt = st.text_input("Describe the model you want to inspect", placeholder="Show Marmousi 2", key="marmousi_prompt")
-    if st.session_state.get("marmousi_interpreted_prompt") != prompt:
+    interpreted_prompt = st.session_state.get("marmousi_interpreted_prompt")
+    if interpreted_prompt is not None and interpreted_prompt != prompt:
         st.session_state.pop("marmousi_interpretation", None)
+        _discard_loaded_model()
     interpret_clicked = not unified and st.button("Interpret & show model", disabled=not prompt.strip())
     if interpret_clicked or auto_prepare:
-        st.session_state.pop("marmousi_load_error", None)
         # Clear stale previews before a new interpretation, including failure.
-        st.session_state.pop("marmousi_base", None)
-        st.session_state.pop("marmousi_preview", None)
+        _discard_loaded_model()
         st.session_state.pop("marmousi_interpretation", None)
         try:
             response = api.interpret_marmousi(prompt)
@@ -91,8 +124,7 @@ def render_model_workspace(api, submit, *, prompt=None, auto_prepare=False):
             format_func=lambda name: "Marmousi 1" if name == "marmousi1" else "Marmousi 2", key="marmousi_dataset")
     base = st.session_state.get("marmousi_base")
     if base and base.selection.dataset != dataset:
-        st.session_state.pop("marmousi_base", None)
-        st.session_state.pop("marmousi_preview", None)
+        _discard_loaded_model()
         base = None
     if base is None:
         if st.session_state.get("marmousi_load_error"):
@@ -101,14 +133,11 @@ def render_model_workspace(api, submit, *, prompt=None, auto_prepare=False):
             try:
                 base = api.preview_marmousi(MarmousiSelection(dataset=dataset))
                 st.session_state["marmousi_base"] = base
-                # Dataset widget already exists in this render; update other controls only.
-                for key, value in base.dataset_extent.model_dump().items():
-                    st.session_state["marmousi_" + key] = value
-                for key in PropertyOverrides.model_fields:
-                    st.session_state["marmousi_enable_" + key] = False
-                st.session_state["marmousi_property"] = "vp"
-                if unified:
-                    _set_controls(interpretation.selection, base.dataset_extent)
+                # Dataset widget already exists in this render. Reset every
+                # scientific control so a prior dataset/property cannot leak.
+                requested = (interpretation.selection if unified else
+                             MarmousiSelection(dataset=dataset))
+                _set_controls(requested, base.dataset_extent, set_dataset=unified)
                 st.session_state.pop("marmousi_load_error", None)
             except GeoWorldClientError as exc:
                 st.error(str(exc))
@@ -119,17 +148,28 @@ def render_model_workspace(api, submit, *, prompt=None, auto_prepare=False):
              f"{extent.x_stop_m:g} m wide × {extent.z_stop_m:g} m deep")
     st.caption("Drag a rectangle on the original Vp plot, then apply it, or enter exact bounds below. Plot is a display thumbnail, not a resampled solver model.")
     try:
-        chart = st.plotly_chart(model_figure(base, selectable=True), key="marmousi_map_" + dataset,
+        generation = st.session_state.get("marmousi_map_generation", 0)
+        chart = st.plotly_chart(model_figure(base, selectable=True),
+                               key=f"marmousi_map_{dataset}_{generation}",
                                on_select="rerun", selection_mode="box", width="stretch")
         boxes = chart.selection.get("box", [])
         if boxes:
             try:
-                chosen = box_crop(boxes[-1], extent)
+                signature = (dataset, tuple(boxes[-1]["x"]), tuple(boxes[-1]["y"]))
+                if st.session_state.get("marmousi_box_signature") != signature:
+                    chosen = resolve_box_crop(api, dataset, boxes[-1], extent)
+                    st.session_state["marmousi_box_signature"] = signature
+                    st.session_state["marmousi_box_resolved"] = chosen
+                else:
+                    chosen = st.session_state["marmousi_box_resolved"]
                 def apply_box():
                     for key, value in chosen.model_dump().items():
                         st.session_state["marmousi_" + key] = value
+                    st.session_state.pop("marmousi_box_signature", None)
+                    st.session_state.pop("marmousi_box_resolved", None)
+                    st.session_state["marmousi_map_generation"] = generation + 1
                 st.button("Use selected rectangle", on_click=apply_box)
-            except (ValueError, KeyError):
+            except (ValueError, KeyError, GeoWorldClientError):
                 st.info("Select a non-empty rectangle inside the model.")
     except ImportError:
         st.info("Install the Studio demo dependencies for the interactive plot. Exact crop controls remain available.")
@@ -174,14 +214,16 @@ def render_model_workspace(api, submit, *, prompt=None, auto_prepare=False):
                  f"{current.resolved_crop.z_stop_m-current.resolved_crop.z_start_m:g} m")
         if selection.crop or overrides or prop != "vp":
             try:
-                st.plotly_chart(model_figure(current), key="marmousi_crop", width="stretch")
+                st.plotly_chart(model_figure(current),
+                                key="marmousi_crop_" + current.configuration_sha256[:16],
+                                width="stretch")
             except ImportError:
                 pass
         else:
             st.caption("The original Vp plot above is the current selection.")
         for warning in current.warnings:
             st.caption(warning)
-        with st.expander("Crop, property assumptions & source provenance"):
+        with st.expander("Advanced: crop, property assumptions & source provenance"):
             st.json(current.provenance)
         if st.button("Save model preview & provenance"):
             submit(api, JobCreateRequest(prompt=prompt or "Save explicitly reviewed Marmousi model controls", mode_hint="marmousi_model",

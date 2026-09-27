@@ -22,6 +22,33 @@ def test_box_normalizes_depth_axis_and_rejects_empty():
         box_crop({"x": [10., 10.], "y": [2., 3.]}, extent)
 
 
+def test_box_crop_is_resolved_by_backend_not_client_grid_math():
+    from types import SimpleNamespace
+    from geoworld_open.studio_marmousi import resolve_box_crop
+
+    extent = make_preview(MarmousiSelection(dataset="marmousi2")).dataset_extent
+    calls = []
+
+    class API:
+        def preview_marmousi(self, selection):
+            calls.append(selection)
+            return SimpleNamespace(resolved_crop=ModelCrop(
+                x_start_m=11., x_stop_m=89., z_start_m=6., z_stop_m=39.,
+            ))
+
+    resolved = resolve_box_crop(
+        API(), "marmousi2", {"x": [90.4, 10.2], "y": [40.1, 5.3]}, extent,
+    )
+
+    assert calls[0].dataset == "marmousi2"
+    assert calls[0].crop == ModelCrop(
+        x_start_m=10.2, x_stop_m=90.4, z_start_m=5.3, z_stop_m=40.1,
+    )
+    assert resolved == ModelCrop(
+        x_start_m=11., x_stop_m=89., z_start_m=6., z_stop_m=39.,
+    )
+
+
 def test_plot_orientation_and_box_selection_trace():
     pytest.importorskip("plotly")
     from geoworld_open.studio_marmousi import model_figure
@@ -56,9 +83,17 @@ def test_model_ui_edit_preview_no_automatic_job(monkeypatch):
     assert not app.exception and calls[-1].crop.x_start_m == 10.
     app.checkbox(key="marmousi_enable_porosity_fraction").check().run(timeout=20)
     assert not app.exception and calls[-1].overrides.porosity_fraction == .2
+    app.number_input(key="marmousi_porosity_fraction").set_value(.35).run(timeout=20)
+    app.selectbox(key="marmousi_property").set_value("porosity").run(timeout=20)
     app.selectbox(key="marmousi_dataset").set_value("marmousi2").run(timeout=20)
     assert not app.exception
     assert not any(b.label == "Save model preview & provenance" for b in app.button)
+    next(b for b in app.button if b.label == "Load selected dataset (manual)").click().run(timeout=20)
+    assert not app.exception
+    assert app.number_input(key="marmousi_x_start_m").value == 0.
+    assert app.checkbox(key="marmousi_enable_porosity_fraction").value is False
+    assert app.number_input(key="marmousi_porosity_fraction").value == .2
+    assert app.selectbox(key="marmousi_property").value == "vp"
 
 
 def test_http_model_preview_is_authenticated():

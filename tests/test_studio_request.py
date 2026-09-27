@@ -102,6 +102,43 @@ def test_marmousi2_interpretation_drives_preview_and_rerun_is_free(app, monkeypa
     assert len(calls) == 2
 
 
+def test_failed_interpretation_can_retry_to_valid_without_stale_model(app, monkeypatch):
+    attempts = []
+
+    def route(_self, prompt):
+        attempts.append(prompt)
+        if len(attempts) == 1:
+            raise GeoWorldClientError("temporary interpretation failure")
+        return StudioDecision(
+            interpretation=StudioIntent(operation="preview", dataset="marmousi1"),
+            route="marmousi_model", message="Preview Marmousi 1",
+        )
+
+    monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio", route)
+    monkeypatch.setattr(
+        GeoWorldBackendClient, "interpret_marmousi",
+        lambda _self, _prompt: MarmousiInterpretation(
+            selection=MarmousiSelection(dataset="marmousi1"), unresolved=[],
+        ),
+    )
+    monkeypatch.setattr(
+        GeoWorldBackendClient, "preview_marmousi",
+        lambda _self, selection: make_preview(selection),
+    )
+
+    app.run(timeout=20)
+    app.text_area(key="prompt").set_value("Show Marmousi 1").run()
+    button(app, "Interpret request").click().run(timeout=20)
+    assert not app.exception
+    assert any("temporary interpretation failure" in item.value for item in app.error)
+    assert "marmousi_base" not in app.session_state
+
+    button(app, "Interpret request").click().run(timeout=20)
+    assert not app.exception
+    assert app.session_state["marmousi_preview"].selection.dataset == "marmousi1"
+    assert len(attempts) == 2
+
+
 def test_new_preview_request_hides_previous_rtm_result(app, monkeypatch):
     completed(app)
 
@@ -202,6 +239,30 @@ def test_reopen_saved_job_restores_prompt_without_llm_or_job(app, monkeypatch):
     app.text_input(key="saved_job_id").set_value("c"*32).run()
     button(app, "Open run").click().run(timeout=20)
     assert not app.exception and app.session_state["last_job_id"] == "b"*32
+
+
+def test_rerun_reconnects_completed_job_without_resubmission(app, monkeypatch):
+    calls = []
+    job = JobStatusResponse(
+        job_id="e" * 32, status="succeeded", progress="complete",
+        result=JobResult(intent="qa", reason="reconnected", answer="Recovered result"),
+    )
+    monkeypatch.setattr(
+        GeoWorldBackendClient, "get_job",
+        lambda _self, job_id: calls.append(job_id) or job,
+    )
+    app.session_state["prompt"] = "Original question"
+    app.session_state["last_job_id"] = "e" * 32
+    app.session_state["last_job"] = None
+    app.session_state["last_submitted_prompt"] = "Original question"
+    app.session_state["last_submitted_mode_hint"] = "ask_question"
+
+    app.run(timeout=20)
+
+    assert not app.exception
+    assert calls == ["e" * 32]
+    assert app.session_state["last_job"].result.answer == "Recovered result"
+    assert any("Recovered result" in item.value for item in app.markdown)
 
 
 def test_unsupported_request_shows_explanation_without_model_controls(app, monkeypatch):

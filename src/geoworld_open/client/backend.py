@@ -118,6 +118,21 @@ class GeoWorldBackendClient:
         request = StudioRequest(prompt=prompt, project_id=project_id)
         return StudioDecision.model_validate(self._json_request("POST", "/intent/interpret", request.model_dump(mode="json")))
 
+    def continue_experiment(self, prompt, *, conversation_id=None, project_id=None):
+        from geoworld_open.client.scientific_experiment import (
+            ExperimentConversationRequest,
+            ExperimentConversationResponse,
+        )
+        request = ExperimentConversationRequest(
+            prompt=prompt,
+            conversation_id=conversation_id,
+            project_id=project_id,
+        )
+        payload = self._json_request(
+            "POST", "/experiments/conversation/turn", request.model_dump(mode="json")
+        )
+        return ExperimentConversationResponse.model_validate(payload)
+
     def get_reference_compute(self):
         from geoworld_open.client.reference_experiment import ReferenceCompute
         return ReferenceCompute.model_validate(self._json_request("GET", "/references/compute"))
@@ -126,6 +141,39 @@ class GeoWorldBackendClient:
         from geoworld_open.client.marmousi import MarmousiPreview, MarmousiPreviewRequest
         request = MarmousiPreviewRequest(selection=selection, project_id=project_id)
         return MarmousiPreview.model_validate(self._json_request("POST", "/models/marmousi/preview", request.model_dump(mode="json")))
+
+    def preview_marmousi_forward(self, experiment, *, project_id=None, preference=None):
+        from geoworld_open.client.execution import ExecutionPreference
+        from geoworld_open.client.marmousi_forward import (
+            MarmousiForwardPreview,
+            MarmousiForwardPreviewRequest,
+        )
+        request = MarmousiForwardPreviewRequest(
+            experiment=experiment,
+            project_id=project_id,
+            preference=preference or ExecutionPreference(),
+        )
+        return MarmousiForwardPreview.model_validate(
+            self._json_request(
+                "POST", "/models/marmousi/forward/preview", request.model_dump(mode="json")
+            )
+        )
+
+    def preview_configurable_fwi(self, experiment, *, project_id=None, preference=None, intermediate_results=None):
+        from geoworld_open.client.configurable_fwi import ConfigurableFWIPreview, ConfigurableFWIPreviewRequest
+        from geoworld_open.client.execution import ExecutionPreference
+        from geoworld_open.client.intermediate_results import IntermediateResultPolicy
+        request = ConfigurableFWIPreviewRequest(
+            experiment=experiment,
+            project_id=project_id,
+            preference=preference or ExecutionPreference(),
+            intermediate_results=intermediate_results or IntermediateResultPolicy(),
+        )
+        return ConfigurableFWIPreview.model_validate(
+            self._json_request(
+                "POST", "/fwi/configurable/preview", request.model_dump(mode="json")
+            )
+        )
 
     def interpret_marmousi(self, prompt, project_id=None):
         from geoworld_open.client.marmousi import MarmousiInterpretation, MarmousiInterpretRequest
