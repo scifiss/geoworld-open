@@ -878,7 +878,7 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
 def render_manual_workspace(api: GeoWorldBackendClient) -> None:
     """Render the existing workflow in a stable presentation-only container."""
     from geoworld_open.studio_rtm import local_rtm_ui_enabled, render_rtm_workspace
-    workspaces = ["Ask or Build", "LAS Quicklook"]
+    workspaces = ["Ask or Build", "Seismic Explorer", "LAS Quicklook"]
     if local_rtm_ui_enabled(backend_url()):
         workspaces.append("Deepwave reference")
         workspaces.append("Marmousi models")
@@ -894,6 +894,10 @@ def render_manual_workspace(api: GeoWorldBackendClient) -> None:
 
     if workspace == "LAS Quicklook":
         render_las_workspace(api)
+        return
+    if workspace == "Seismic Explorer":
+        from geoworld_open.studio_seismic import render_seismic_explorer
+        render_seismic_explorer(api)
         return
     if workspace == "Model + RTM":
         render_rtm_workspace(api, submit_and_wait)

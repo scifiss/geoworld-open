@@ -133,6 +133,30 @@ class GeoWorldBackendClient:
         )
         return ExperimentConversationResponse.model_validate(payload)
 
+    def list_seismic_datasets(self):
+        from geoworld_open.client.seismic import SeismicDatasetCatalog
+        return SeismicDatasetCatalog.model_validate(
+            self._json_request("GET", "/seismic/datasets")
+        )
+
+    def get_seismic_view(self, request):
+        from geoworld_open.client.seismic import SeismicViewData, SeismicViewRequest
+        validated = SeismicViewRequest.model_validate(request)
+        return SeismicViewData.model_validate(
+            self._json_request("POST", "/seismic/view", validated.model_dump(mode="json"))
+        )
+
+    def continue_seismic_explorer(self, prompt, *, dataset_id=None, conversation_id=None):
+        from geoworld_open.client.seismic import SeismicConversationRequest, SeismicExplorerResponse
+        request = SeismicConversationRequest(
+            prompt=prompt, dataset_id=dataset_id, conversation_id=conversation_id,
+        )
+        return SeismicExplorerResponse.model_validate(
+            self._json_request(
+                "POST", "/seismic/conversation/turn", request.model_dump(mode="json")
+            )
+        )
+
     def get_reference_compute(self):
         from geoworld_open.client.reference_experiment import ReferenceCompute
         return ReferenceCompute.model_validate(self._json_request("GET", "/references/compute"))

@@ -36,6 +36,18 @@ from geoworld_open.client.marmousi_forward import (
     RecordingTimeAdequacy,
     ResolvedMarmousiAcquisition,
 )
+from geoworld_open.client.seismic import (
+    SeismicAnalysisRequest,
+    SeismicAnalysisResult,
+    SeismicConversationRequest,
+    SeismicDatasetCatalog,
+    SeismicDatasetSummary,
+    SeismicExplorerResponse,
+    SeismicExplorerState,
+    SeismicViewData,
+    SeismicViewRequest,
+    SeismicWindow,
+)
 
 __all__ = [
     "AcquisitionRequest",
@@ -64,6 +76,16 @@ __all__ = [
     "ResolvedMarmousiAcquisition",
     "RequestedOutputs",
     "ScientificExperimentDraft",
+    "SeismicAnalysisRequest",
+    "SeismicAnalysisResult",
+    "SeismicConversationRequest",
+    "SeismicDatasetCatalog",
+    "SeismicDatasetSummary",
+    "SeismicExplorerResponse",
+    "SeismicExplorerState",
+    "SeismicViewData",
+    "SeismicViewRequest",
+    "SeismicWindow",
     "UploadedLASFile",
     "UserProfile",
 ]
