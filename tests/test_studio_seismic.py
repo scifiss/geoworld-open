@@ -12,6 +12,8 @@ def test_seismic_explorer_renders_and_switching_dataset_clears_stale_view():
         str(Path(__file__).parents[1] / "tests/fixtures/seismic_explorer_app.py")
     ).run(timeout=20)
     assert not app.exception
+    assert len(app.get("file_uploader")) == 1
+    assert any(button.label == "Validate upload" for button in app.button)
     assert any("2D RSF" in item.value for item in app.markdown)
     next(button for button in app.button if button.label == "Open dataset").click().run(timeout=20)
     assert not app.exception

@@ -8,6 +8,7 @@ from geoworld_open.client.seismic import (
     SeismicViewRequest,
     SeismicWindow,
     SeismicDatasetCatalog,
+    SeismicUploadRecord,
 )
 
 
@@ -49,3 +50,13 @@ def test_catalog_can_explain_rejected_geometry_without_a_host_path():
     )
     assert catalog.datasets == []
     assert "/home/" not in catalog.warnings[0]
+
+
+def test_upload_status_exposes_identity_without_managed_path():
+    record = SeismicUploadRecord(
+        upload_id="f" * 32, display_filename="owned.sgy", status="ready",
+        created_at="2026-09-28T12:00:00+00:00", dataset=_dataset(),
+    )
+    payload = record.model_dump(mode="json")
+    assert payload["dataset"]["source"].startswith("configured://")
+    assert "path" not in payload

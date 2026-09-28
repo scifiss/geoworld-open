@@ -56,7 +56,26 @@ def _render_analysis(result) -> None:
 
 def render_seismic_explorer(api) -> None:
     st.subheader("Seismic Explorer")
-    st.caption("Inspect configured regular post-stack SEG-Y and RSF data. Views are bounded reads; no numerical solver runs.")
+    st.caption("Inspect configured or privately uploaded regular post-stack SEG-Y and RSF data. Views are bounded reads; no numerical solver runs.")
+    uploaded = st.file_uploader(
+        "Upload SEG-Y", type=["sgy", "segy"], accept_multiple_files=False,
+        key="seismic_upload",
+    )
+    if st.button(
+        "Validate upload", disabled=uploaded is None, key="seismic_upload_submit",
+    ):
+        try:
+            record = api.upload_seismic(uploaded.name, uploaded.getvalue())
+            st.session_state["seismic_upload_notice"] = (
+                f"{record.display_filename} is validated and ready."
+            )
+            st.session_state.pop("seismic_response", None)
+            st.session_state.pop("seismic_conversation_id", None)
+            st.rerun()
+        except GeoWorldClientError as exc:
+            st.error(str(exc))
+    if notice := st.session_state.pop("seismic_upload_notice", None):
+        st.success(notice)
     try:
         catalog = api.list_seismic_datasets()
     except GeoWorldClientError as exc:

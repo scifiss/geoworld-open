@@ -19,6 +19,7 @@ VerticalDomain = Literal["time", "depth"]
 ViewKind = Literal["auto", "section", "inline", "crossline", "vertical_slice", "trace", "subvolume"]
 AnalysisKind = Literal["statistics", "histogram", "spectrum", "trace_comparison"]
 ExplorerStatus = Literal["ready", "clarification_required", "unsupported"]
+SeismicUploadStatus = Literal["validating", "ready", "failed"]
 
 
 class SeismicAxis(ExecutionContract):
@@ -154,3 +155,14 @@ class SeismicExplorerResponse(ExecutionContract):
 class SeismicDatasetCatalog(ExecutionContract):
     datasets: list[SeismicDatasetSummary] = Field(default_factory=list, max_length=1000)
     warnings: list[str] = Field(default_factory=list, max_length=1000)
+
+
+class SeismicUploadRecord(ExecutionContract):
+    """Safe public status for one private, authenticated SEG-Y upload."""
+
+    upload_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    display_filename: str = Field(min_length=1, max_length=255)
+    status: SeismicUploadStatus
+    created_at: str = Field(min_length=1, max_length=80)
+    validation_message: str = Field(default="", max_length=1000)
+    dataset: SeismicDatasetSummary | None = None

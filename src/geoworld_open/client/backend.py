@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass
 from typing import Mapping, Protocol
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
 from geoworld_open.client.models import (
@@ -138,6 +138,26 @@ class GeoWorldBackendClient:
         return SeismicDatasetCatalog.model_validate(
             self._json_request("GET", "/seismic/datasets")
         )
+
+    def upload_seismic(self, filename: str, content: bytes):
+        """Upload one SEG-Y source without exposing or accepting a server path."""
+        from geoworld_open.client.seismic import SeismicUploadRecord
+        if not isinstance(content, bytes):
+            raise TypeError("content must be bytes")
+        status, body = self._send_bytes(
+            "POST", "/seismic/uploads", content,
+            headers={
+                "Content-Type": "application/octet-stream",
+                "X-GeoWorld-Filename": quote(filename, safe=""),
+            },
+        )
+        if not 200 <= status < 300:
+            raise GeoWorldClientError(self._error_message(status, body))
+        try:
+            decoded = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise GeoWorldClientError("GeoWorld backend returned invalid JSON") from exc
+        return SeismicUploadRecord.model_validate(decoded)
 
     def get_seismic_view(self, request):
         from geoworld_open.client.seismic import SeismicViewData, SeismicViewRequest
@@ -306,6 +326,25 @@ class GeoWorldBackendClient:
             method,
             f"{self._base_url}{path}",
             headers,
+            body,
+            self._timeout,
+        )
+
+    def _send_bytes(
+        self,
+        method: str,
+        path: str,
+        body: bytes,
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> tuple[int, bytes]:
+        request_headers = {"Accept": "application/json", **(headers or {})}
+        if self._token:
+            request_headers["Authorization"] = f"Bearer {self._token}"
+        return self._transport.send(
+            method,
+            f"{self._base_url}{path}",
+            request_headers,
             body,
             self._timeout,
         )
