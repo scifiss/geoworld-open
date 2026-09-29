@@ -65,7 +65,8 @@ def render_seismic_explorer(api) -> None:
         "Validate upload", disabled=uploaded is None, key="seismic_upload_submit",
     ):
         try:
-            record = api.upload_seismic(uploaded.name, uploaded.getvalue())
+            uploaded.seek(0)
+            record = api.upload_seismic(uploaded.name, uploaded)
             st.session_state["seismic_upload_notice"] = (
                 f"{record.display_filename} is validated and ready."
             )

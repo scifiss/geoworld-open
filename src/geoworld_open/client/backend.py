@@ -10,7 +10,7 @@ import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Mapping, Protocol
+from typing import BinaryIO, Iterable, Mapping, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
@@ -28,13 +28,18 @@ class GeoWorldClientError(RuntimeError):
     """Sanitized backend/client failure safe to show in the public UI."""
 
 
+RequestBody = bytes | Iterable[bytes]
+UploadSource = bytes | bytearray | memoryview | BinaryIO | Iterable[bytes]
+UPLOAD_CHUNK_BYTES = 1024 * 1024
+
+
 class HttpTransport(Protocol):
     def send(
         self,
         method: str,
         url: str,
         headers: dict[str, str],
-        body: bytes | None,
+        body: RequestBody | None,
         timeout: float,
     ) -> tuple[int, bytes]: ...
 
@@ -46,7 +51,7 @@ class UrllibTransport:
         method: str,
         url: str,
         headers: dict[str, str],
-        body: bytes | None,
+        body: RequestBody | None,
         timeout: float,
     ) -> tuple[int, bytes]:
         request = Request(url, data=body, headers=headers, method=method)
@@ -139,13 +144,11 @@ class GeoWorldBackendClient:
             self._json_request("GET", "/seismic/datasets")
         )
 
-    def upload_seismic(self, filename: str, content: bytes):
+    def upload_seismic(self, filename: str, content: UploadSource):
         """Upload one SEG-Y source without exposing or accepting a server path."""
         from geoworld_open.client.seismic import SeismicUploadRecord
-        if not isinstance(content, bytes):
-            raise TypeError("content must be bytes")
-        status, body = self._send_bytes(
-            "POST", "/seismic/uploads", content,
+        status, body = self._send_binary(
+            "POST", "/seismic/uploads", self._upload_body(content),
             headers={
                 "Content-Type": "application/octet-stream",
                 "X-GeoWorld-Filename": quote(filename, safe=""),
@@ -330,11 +333,41 @@ class GeoWorldBackendClient:
             self._timeout,
         )
 
-    def _send_bytes(
+    @staticmethod
+    def _upload_body(content: UploadSource) -> RequestBody:
+        if isinstance(content, bytes):
+            return content
+        if isinstance(content, (bytearray, memoryview)):
+            return bytes(content)
+        reader = getattr(content, "read", None)
+        if callable(reader):
+            def read_chunks() -> Iterable[bytes]:
+                while True:
+                    chunk = reader(UPLOAD_CHUNK_BYTES)
+                    if not chunk:
+                        return
+                    if not isinstance(chunk, (bytes, bytearray, memoryview)):
+                        raise GeoWorldClientError("SEG-Y upload source returned non-binary data")
+                    yield bytes(chunk)
+            return read_chunks()
+
+        def validated_chunks() -> Iterable[bytes]:
+            try:
+                iterator = iter(content)
+            except TypeError as exc:
+                raise TypeError("content must be bytes, a binary file, or byte chunks") from exc
+            for chunk in iterator:
+                if not isinstance(chunk, (bytes, bytearray, memoryview)):
+                    raise GeoWorldClientError("SEG-Y upload source returned non-binary data")
+                if chunk:
+                    yield bytes(chunk)
+        return validated_chunks()
+
+    def _send_binary(
         self,
         method: str,
         path: str,
-        body: bytes,
+        body: RequestBody,
         *,
         headers: dict[str, str] | None = None,
     ) -> tuple[int, bytes]:

@@ -1,4 +1,5 @@
 from pathlib import Path
+import inspect
 
 import pytest
 
@@ -41,3 +42,11 @@ def test_display_clip_is_explicitly_non_destructive():
     assert data.values == original
     assert figure.data[0].zmin == -figure.data[0].zmax
     assert "do not alter source samples" in data.display_note
+
+
+def test_studio_passes_uploaded_file_without_materializing_full_content():
+    from geoworld_open.studio_seismic import render_seismic_explorer
+
+    source = inspect.getsource(render_seismic_explorer)
+    assert "uploaded.getvalue()" not in source
+    assert "api.upload_seismic(uploaded.name, uploaded)" in source
