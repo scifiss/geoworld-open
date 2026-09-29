@@ -175,6 +175,34 @@ def render_auth() -> str | None:
     return None
 
 
+def render_change_password(api: GeoWorldBackendClient) -> None:
+    with st.expander("Change password"):
+        with st.form("change_password_form", clear_on_submit=True):
+            current_password = st.text_input(
+                "Current password", type="password", autocomplete="current-password",
+                key="account_current_password",
+            )
+            new_password = st.text_input(
+                "New password", type="password", autocomplete="new-password",
+                key="account_new_password",
+            )
+            confirm_password = st.text_input(
+                "Confirm new password", type="password", autocomplete="new-password",
+                key="account_confirm_password",
+            )
+            submitted = st.form_submit_button("Update password")
+        if not submitted:
+            return
+        if new_password != confirm_password:
+            st.error("New password and confirmation do not match.")
+            return
+        try:
+            result = api.change_password(current_password, new_password)
+            st.success(result.message)
+        except GeoWorldClientError as exc:
+            st.error(str(exc))
+
+
 def poll_job(api: GeoWorldBackendClient, job_id: str, *, actual_stages=False, reference=False):
     from geoworld_open.studio_progress import progress_labels
     progress = st.empty()
@@ -1166,6 +1194,7 @@ with st.sidebar:
         st.caption("Configuration only; each result shows the model recorded for that run.")
     except Exception:
         st.warning("GeoWorld service status is temporarily unavailable")
+    render_change_password(api)
     if st.button("Log out"):
         clear_session()
         st.rerun()

@@ -53,6 +53,30 @@ def test_login_uses_public_http_contract_only() -> None:
     assert json.loads(body.decode("utf-8"))["email"] == "user@example.com"
 
 
+def test_change_password_uses_authenticated_bounded_response():
+    transport = FakeTransport([
+        (200, {"status": "ok", "message": "Password changed."}),
+    ])
+    client = GeoWorldBackendClient(
+        "https://example.test", token="token-1", transport=transport,
+    )
+
+    result = client.change_password("current-password", "new-password-123")
+
+    assert result.message == "Password changed."
+    method, url, headers, body, _ = transport.calls[0]
+    assert (method, url) == ("POST", "https://example.test/auth/change-password")
+    assert headers["Authorization"] == "Bearer token-1"
+    assert json.loads(body.decode("utf-8")) == {
+        "current_password": "current-password",
+        "new_password": "new-password-123",
+    }
+    response_text = result.model_dump_json()
+    assert "current-password" not in response_text
+    assert "new-password-123" not in response_text
+    assert "pbkdf2" not in response_text
+
+
 def test_authenticated_build_job_round_trip() -> None:
     transport = FakeTransport(
         [

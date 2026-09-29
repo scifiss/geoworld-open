@@ -194,6 +194,26 @@ def test_logout_clears_report_and_submitted_prompt(app):
     assert "last_preparation_model" not in app.session_state
 
 
+def test_change_password_form_validates_confirmation_and_reports_success(app, monkeypatch):
+    calls = []
+
+    def change(_api, current_password, new_password):
+        calls.append((current_password, new_password))
+        from geoworld_open.client import PasswordChangeResponse
+        return PasswordChangeResponse(message="Password changed.")
+
+    monkeypatch.setattr(GeoWorldBackendClient, "change_password", change)
+    app.run(timeout=15)
+    app.text_input(key="account_current_password").set_value("current-password")
+    app.text_input(key="account_new_password").set_value("new-password-123")
+    app.text_input(key="account_confirm_password").set_value("new-password-123")
+    button(app, "Update password").click().run(timeout=15)
+
+    assert not app.exception
+    assert calls == [("current-password", "new-password-123")]
+    assert any(item.value == "Password changed." for item in app.success)
+
+
 def test_saving_is_in_sidebar_not_workflow_and_layout_defaults_to_auto(app):
     app.run(timeout=15)
     assert not app.exception

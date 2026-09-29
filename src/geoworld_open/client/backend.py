@@ -111,6 +111,17 @@ class GeoWorldBackendClient:
         )
         return AuthResponse.model_validate(payload)
 
+    def change_password(
+        self, current_password: str, new_password: str,
+    ):
+        from geoworld_open.client.models import PasswordChangeResponse
+        payload = self._json_request(
+            "POST",
+            "/auth/change-password",
+            {"current_password": current_password, "new_password": new_password},
+        )
+        return PasswordChangeResponse.model_validate(payload)
+
     def get_llm_health(self) -> dict[str, object]:
         return self._json_request("GET", "/api/llm/health")
 
