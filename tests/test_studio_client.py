@@ -77,6 +77,43 @@ def test_change_password_uses_authenticated_bounded_response():
     assert "pbkdf2" not in response_text
 
 
+def test_forgot_and_reset_password_use_safe_public_contracts():
+    transport = FakeTransport([
+        (200, {
+            "status": "ok",
+            "message": "If an account exists for that email, a password reset link has been sent.",
+        }),
+        (200, {
+            "status": "ok",
+            "message": "Password reset. Please sign in with your new password.",
+        }),
+    ])
+    client = GeoWorldBackendClient("https://example.test", transport=transport)
+
+    forgot = client.forgot_password("person@example.test")
+    reset = client.reset_password("opaque-reset-token-value-1234567890", "new-password-123")
+
+    assert forgot.status == reset.status == "ok"
+    forgot_call, reset_call = transport.calls
+    assert forgot_call[0:2] == (
+        "POST", "https://example.test/auth/forgot-password",
+    )
+    assert json.loads(forgot_call[3].decode("utf-8")) == {
+        "email": "person@example.test",
+    }
+    assert reset_call[0:2] == (
+        "POST", "https://example.test/auth/reset-password",
+    )
+    assert json.loads(reset_call[3].decode("utf-8")) == {
+        "reset_token": "opaque-reset-token-value-1234567890",
+        "new_password": "new-password-123",
+    }
+    responses = forgot.model_dump_json() + reset.model_dump_json()
+    assert "opaque-reset-token" not in responses
+    assert "new-password-123" not in responses
+    assert "pbkdf2" not in responses
+
+
 def test_authenticated_build_job_round_trip() -> None:
     transport = FakeTransport(
         [

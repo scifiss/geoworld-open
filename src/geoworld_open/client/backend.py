@@ -18,9 +18,11 @@ from urllib.request import Request, urlopen
 from geoworld_open.client.models import (
     AuthResponse,
     CapabilityCatalog,
+    ForgotPasswordResponse,
     JobCreateRequest,
     JobCreateResponse,
     JobStatusResponse,
+    PasswordResetResponse,
 )
 
 
@@ -110,6 +112,20 @@ class GeoWorldBackendClient:
             retry_on_429=True,
         )
         return AuthResponse.model_validate(payload)
+
+    def forgot_password(self, email: str) -> ForgotPasswordResponse:
+        payload = self._json_request(
+            "POST", "/auth/forgot-password", {"email": email},
+        )
+        return ForgotPasswordResponse.model_validate(payload)
+
+    def reset_password(self, reset_token: str, new_password: str) -> PasswordResetResponse:
+        payload = self._json_request(
+            "POST",
+            "/auth/reset-password",
+            {"reset_token": reset_token, "new_password": new_password},
+        )
+        return PasswordResetResponse.model_validate(payload)
 
     def change_password(
         self, current_password: str, new_password: str,
