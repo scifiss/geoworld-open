@@ -53,6 +53,67 @@ def test_login_uses_public_http_contract_only() -> None:
     assert json.loads(body.decode("utf-8"))["email"] == "user@example.com"
 
 
+def test_change_password_uses_authenticated_bounded_response():
+    transport = FakeTransport([
+        (200, {"status": "ok", "message": "Password changed."}),
+    ])
+    client = GeoWorldBackendClient(
+        "https://example.test", token="token-1", transport=transport,
+    )
+
+    result = client.change_password("current-password", "new-password-123")
+
+    assert result.message == "Password changed."
+    method, url, headers, body, _ = transport.calls[0]
+    assert (method, url) == ("POST", "https://example.test/auth/change-password")
+    assert headers["Authorization"] == "Bearer token-1"
+    assert json.loads(body.decode("utf-8")) == {
+        "current_password": "current-password",
+        "new_password": "new-password-123",
+    }
+    response_text = result.model_dump_json()
+    assert "current-password" not in response_text
+    assert "new-password-123" not in response_text
+    assert "pbkdf2" not in response_text
+
+
+def test_forgot_and_reset_password_use_safe_public_contracts():
+    transport = FakeTransport([
+        (200, {
+            "status": "ok",
+            "message": "If an account exists for that email, a password reset link has been sent.",
+        }),
+        (200, {
+            "status": "ok",
+            "message": "Password reset. Please sign in with your new password.",
+        }),
+    ])
+    client = GeoWorldBackendClient("https://example.test", transport=transport)
+
+    forgot = client.forgot_password("person@example.test")
+    reset = client.reset_password("opaque-reset-token-value-1234567890", "new-password-123")
+
+    assert forgot.status == reset.status == "ok"
+    forgot_call, reset_call = transport.calls
+    assert forgot_call[0:2] == (
+        "POST", "https://example.test/auth/forgot-password",
+    )
+    assert json.loads(forgot_call[3].decode("utf-8")) == {
+        "email": "person@example.test",
+    }
+    assert reset_call[0:2] == (
+        "POST", "https://example.test/auth/reset-password",
+    )
+    assert json.loads(reset_call[3].decode("utf-8")) == {
+        "reset_token": "opaque-reset-token-value-1234567890",
+        "new_password": "new-password-123",
+    }
+    responses = forgot.model_dump_json() + reset.model_dump_json()
+    assert "opaque-reset-token" not in responses
+    assert "new-password-123" not in responses
+    assert "pbkdf2" not in responses
+
+
 def test_authenticated_build_job_round_trip() -> None:
     transport = FakeTransport(
         [

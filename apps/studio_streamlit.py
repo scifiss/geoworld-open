@@ -137,9 +137,62 @@ def clear_last_result() -> None:
         st.session_state.pop(key, None)
 
 
+def render_forgot_password() -> None:
+    with st.expander("Forgot password?"):
+        with st.form("forgot_password_form", clear_on_submit=True):
+            email = st.text_input(
+                "Account email", autocomplete="email", key="forgot_password_email",
+            )
+            submitted = st.form_submit_button("Send reset link")
+        if not submitted:
+            return
+        try:
+            result = client().forgot_password(email.strip())
+            st.success(result.message)
+        except GeoWorldClientError as exc:
+            st.error(str(exc))
+
+
+def render_reset_password(reset_token: str) -> None:
+    st.subheader("Reset password")
+    if st.session_state.get("password_reset_complete"):
+        st.success("Password reset. Please sign in with your new password.")
+        if st.button("Return to login"):
+            st.session_state.pop("password_reset_complete", None)
+            st.query_params.clear()
+            st.rerun()
+        return
+
+    with st.form("reset_password_form", clear_on_submit=True):
+        new_password = st.text_input(
+            "New password", type="password", autocomplete="new-password",
+            key="reset_new_password",
+        )
+        confirm_password = st.text_input(
+            "Confirm new password", type="password", autocomplete="new-password",
+            key="reset_confirm_password",
+        )
+        submitted = st.form_submit_button("Reset password")
+    if not submitted:
+        return
+    if new_password != confirm_password:
+        st.error("New password and confirmation do not match.")
+        return
+    try:
+        result = client().reset_password(reset_token, new_password)
+        clear_session()
+        st.session_state["password_reset_complete"] = True
+        st.success(result.message)
+    except GeoWorldClientError as exc:
+        st.error(str(exc))
+
+
 def render_auth() -> str | None:
+    reset_token = st.query_params.get("reset_token")
+    if isinstance(reset_token, list):
+        reset_token = reset_token[0] if reset_token else None
     token = st.session_state.get("access_token")
-    if token:
+    if token and not reset_token:
         return str(token)
 
     st.title("🌍 GeoWorld Studio")
@@ -150,6 +203,14 @@ def render_auth() -> str | None:
         st.error("Backend is not configured. Set `GEOWORLD_BACKEND_URL` and restart the app.")
         st.code("export GEOWORLD_BACKEND_URL=https://<official-geoworld-backend>")
         return None
+
+    if reset_token:
+        render_reset_password(str(reset_token))
+        return None
+
+    notice = st.session_state.pop("auth_notice", None)
+    if notice:
+        st.success(str(notice))
 
     st.info("Sign in to use the official GeoWorld backend. Credentials and user data are not stored in geoworld-open.")
     mode = st.radio("Account", ["Login", "Register"], horizontal=True)
@@ -172,7 +233,40 @@ def render_auth() -> str | None:
             st.rerun()
         except GeoWorldClientError as exc:
             st.error(str(exc))
+    if mode == "Login":
+        render_forgot_password()
     return None
+
+
+def render_change_password(api: GeoWorldBackendClient) -> None:
+    with st.expander("Change password"):
+        with st.form("change_password_form", clear_on_submit=True):
+            current_password = st.text_input(
+                "Current password", type="password", autocomplete="current-password",
+                key="account_current_password",
+            )
+            new_password = st.text_input(
+                "New password", type="password", autocomplete="new-password",
+                key="account_new_password",
+            )
+            confirm_password = st.text_input(
+                "Confirm new password", type="password", autocomplete="new-password",
+                key="account_confirm_password",
+            )
+            submitted = st.form_submit_button("Update password")
+        if not submitted:
+            return
+        if new_password != confirm_password:
+            st.error("New password and confirmation do not match.")
+            return
+        try:
+            result = api.change_password(current_password, new_password)
+            message = result.message
+            clear_session()
+            st.session_state["auth_notice"] = message + " Please sign in again."
+            st.rerun()
+        except GeoWorldClientError as exc:
+            st.error(str(exc))
 
 
 def poll_job(api: GeoWorldBackendClient, job_id: str, *, actual_stages=False, reference=False):
@@ -878,7 +972,7 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
 def render_manual_workspace(api: GeoWorldBackendClient) -> None:
     """Render the existing workflow in a stable presentation-only container."""
     from geoworld_open.studio_rtm import local_rtm_ui_enabled, render_rtm_workspace
-    workspaces = ["Ask or Build", "LAS Quicklook"]
+    workspaces = ["Ask or Build", "Seismic Explorer", "LAS Quicklook"]
     if local_rtm_ui_enabled(backend_url()):
         workspaces.append("Deepwave reference")
         workspaces.append("Marmousi models")
@@ -894,6 +988,10 @@ def render_manual_workspace(api: GeoWorldBackendClient) -> None:
 
     if workspace == "LAS Quicklook":
         render_las_workspace(api)
+        return
+    if workspace == "Seismic Explorer":
+        from geoworld_open.studio_seismic import render_seismic_explorer
+        render_seismic_explorer(api)
         return
     if workspace == "Model + RTM":
         render_rtm_workspace(api, submit_and_wait)
@@ -1162,6 +1260,7 @@ with st.sidebar:
         st.caption("Configuration only; each result shows the model recorded for that run.")
     except Exception:
         st.warning("GeoWorld service status is temporarily unavailable")
+    render_change_password(api)
     if st.button("Log out"):
         clear_session()
         st.rerun()

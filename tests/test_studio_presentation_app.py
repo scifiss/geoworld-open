@@ -194,6 +194,77 @@ def test_logout_clears_report_and_submitted_prompt(app):
     assert "last_preparation_model" not in app.session_state
 
 
+def test_change_password_form_validates_confirmation_and_reports_success(app, monkeypatch):
+    calls = []
+
+    def change(_api, current_password, new_password):
+        calls.append((current_password, new_password))
+        from geoworld_open.client import PasswordChangeResponse
+        return PasswordChangeResponse(message="Password changed.")
+
+    monkeypatch.setattr(GeoWorldBackendClient, "change_password", change)
+    app.run(timeout=15)
+    app.text_input(key="account_current_password").set_value("current-password")
+    app.text_input(key="account_new_password").set_value("new-password-123")
+    app.text_input(key="account_confirm_password").set_value("new-password-123")
+    button(app, "Update password").click().run(timeout=15)
+
+    assert not app.exception
+    assert calls == [("current-password", "new-password-123")]
+    assert "access_token" not in app.session_state
+    assert any(
+        "Password changed. Please sign in again." == item.value for item in app.success
+    )
+
+
+def test_forgot_password_form_returns_generic_confirmation(app, monkeypatch):
+    calls = []
+
+    def forgot(_api, email):
+        calls.append(email)
+        from geoworld_open.client import ForgotPasswordResponse
+        return ForgotPasswordResponse(
+            message=(
+                "If an account exists for that email, a password reset link has been sent."
+            )
+        )
+
+    monkeypatch.setattr(GeoWorldBackendClient, "forgot_password", forgot)
+    del app.session_state["access_token"]
+    app.run(timeout=15)
+    app.text_input(key="forgot_password_email").set_value("person@example.test")
+    button(app, "Send reset link").click().run(timeout=15)
+
+    assert not app.exception
+    assert calls == ["person@example.test"]
+    assert any("If an account exists" in item.value for item in app.success)
+
+
+def test_reset_link_opens_password_form_and_submits_token(app, monkeypatch):
+    calls = []
+
+    def reset(_api, token, new_password):
+        calls.append((token, new_password))
+        from geoworld_open.client import PasswordResetResponse
+        return PasswordResetResponse(
+            message="Password reset. Please sign in with your new password."
+        )
+
+    monkeypatch.setattr(GeoWorldBackendClient, "reset_password", reset)
+    app.query_params["reset_token"] = "opaque-reset-token-value-1234567890"
+    app.run(timeout=15)
+    app.text_input(key="reset_new_password").set_value("new-password-123")
+    app.text_input(key="reset_confirm_password").set_value("new-password-123")
+    button(app, "Reset password").click().run(timeout=15)
+
+    assert not app.exception
+    assert calls == [
+        ("opaque-reset-token-value-1234567890", "new-password-123"),
+    ]
+    assert "access_token" not in app.session_state
+    assert any("Password reset." in item.value for item in app.success)
+
+
 def test_saving_is_in_sidebar_not_workflow_and_layout_defaults_to_auto(app):
     app.run(timeout=15)
     assert not app.exception

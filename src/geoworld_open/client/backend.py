@@ -10,22 +10,29 @@ import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Mapping, Protocol
+from typing import BinaryIO, Iterable, Mapping, Protocol
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
 from geoworld_open.client.models import (
     AuthResponse,
     CapabilityCatalog,
+    ForgotPasswordResponse,
     JobCreateRequest,
     JobCreateResponse,
     JobStatusResponse,
+    PasswordResetResponse,
 )
 
 
 class GeoWorldClientError(RuntimeError):
     """Sanitized backend/client failure safe to show in the public UI."""
+
+
+RequestBody = bytes | Iterable[bytes]
+UploadSource = bytes | bytearray | memoryview | BinaryIO | Iterable[bytes]
+UPLOAD_CHUNK_BYTES = 1024 * 1024
 
 
 class HttpTransport(Protocol):
@@ -34,7 +41,7 @@ class HttpTransport(Protocol):
         method: str,
         url: str,
         headers: dict[str, str],
-        body: bytes | None,
+        body: RequestBody | None,
         timeout: float,
     ) -> tuple[int, bytes]: ...
 
@@ -46,7 +53,7 @@ class UrllibTransport:
         method: str,
         url: str,
         headers: dict[str, str],
-        body: bytes | None,
+        body: RequestBody | None,
         timeout: float,
     ) -> tuple[int, bytes]:
         request = Request(url, data=body, headers=headers, method=method)
@@ -106,6 +113,31 @@ class GeoWorldBackendClient:
         )
         return AuthResponse.model_validate(payload)
 
+    def forgot_password(self, email: str) -> ForgotPasswordResponse:
+        payload = self._json_request(
+            "POST", "/auth/forgot-password", {"email": email},
+        )
+        return ForgotPasswordResponse.model_validate(payload)
+
+    def reset_password(self, reset_token: str, new_password: str) -> PasswordResetResponse:
+        payload = self._json_request(
+            "POST",
+            "/auth/reset-password",
+            {"reset_token": reset_token, "new_password": new_password},
+        )
+        return PasswordResetResponse.model_validate(payload)
+
+    def change_password(
+        self, current_password: str, new_password: str,
+    ):
+        from geoworld_open.client.models import PasswordChangeResponse
+        payload = self._json_request(
+            "POST",
+            "/auth/change-password",
+            {"current_password": current_password, "new_password": new_password},
+        )
+        return PasswordChangeResponse.model_validate(payload)
+
     def get_llm_health(self) -> dict[str, object]:
         return self._json_request("GET", "/api/llm/health")
 
@@ -132,6 +164,48 @@ class GeoWorldBackendClient:
             "POST", "/experiments/conversation/turn", request.model_dump(mode="json")
         )
         return ExperimentConversationResponse.model_validate(payload)
+
+    def list_seismic_datasets(self):
+        from geoworld_open.client.seismic import SeismicDatasetCatalog
+        return SeismicDatasetCatalog.model_validate(
+            self._json_request("GET", "/seismic/datasets")
+        )
+
+    def upload_seismic(self, filename: str, content: UploadSource):
+        """Upload one SEG-Y source without exposing or accepting a server path."""
+        from geoworld_open.client.seismic import SeismicUploadRecord
+        status, body = self._send_binary(
+            "POST", "/seismic/uploads", self._upload_body(content),
+            headers={
+                "Content-Type": "application/octet-stream",
+                "X-GeoWorld-Filename": quote(filename, safe=""),
+            },
+        )
+        if not 200 <= status < 300:
+            raise GeoWorldClientError(self._error_message(status, body))
+        try:
+            decoded = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise GeoWorldClientError("GeoWorld backend returned invalid JSON") from exc
+        return SeismicUploadRecord.model_validate(decoded)
+
+    def get_seismic_view(self, request):
+        from geoworld_open.client.seismic import SeismicViewData, SeismicViewRequest
+        validated = SeismicViewRequest.model_validate(request)
+        return SeismicViewData.model_validate(
+            self._json_request("POST", "/seismic/view", validated.model_dump(mode="json"))
+        )
+
+    def continue_seismic_explorer(self, prompt, *, dataset_id=None, conversation_id=None):
+        from geoworld_open.client.seismic import SeismicConversationRequest, SeismicExplorerResponse
+        request = SeismicConversationRequest(
+            prompt=prompt, dataset_id=dataset_id, conversation_id=conversation_id,
+        )
+        return SeismicExplorerResponse.model_validate(
+            self._json_request(
+                "POST", "/seismic/conversation/turn", request.model_dump(mode="json")
+            )
+        )
 
     def get_reference_compute(self):
         from geoworld_open.client.reference_experiment import ReferenceCompute
@@ -282,6 +356,55 @@ class GeoWorldBackendClient:
             method,
             f"{self._base_url}{path}",
             headers,
+            body,
+            self._timeout,
+        )
+
+    @staticmethod
+    def _upload_body(content: UploadSource) -> RequestBody:
+        if isinstance(content, bytes):
+            return content
+        if isinstance(content, (bytearray, memoryview)):
+            return bytes(content)
+        reader = getattr(content, "read", None)
+        if callable(reader):
+            def read_chunks() -> Iterable[bytes]:
+                while True:
+                    chunk = reader(UPLOAD_CHUNK_BYTES)
+                    if not chunk:
+                        return
+                    if not isinstance(chunk, (bytes, bytearray, memoryview)):
+                        raise GeoWorldClientError("SEG-Y upload source returned non-binary data")
+                    yield bytes(chunk)
+            return read_chunks()
+
+        def validated_chunks() -> Iterable[bytes]:
+            try:
+                iterator = iter(content)
+            except TypeError as exc:
+                raise TypeError("content must be bytes, a binary file, or byte chunks") from exc
+            for chunk in iterator:
+                if not isinstance(chunk, (bytes, bytearray, memoryview)):
+                    raise GeoWorldClientError("SEG-Y upload source returned non-binary data")
+                if chunk:
+                    yield bytes(chunk)
+        return validated_chunks()
+
+    def _send_binary(
+        self,
+        method: str,
+        path: str,
+        body: RequestBody,
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> tuple[int, bytes]:
+        request_headers = {"Accept": "application/json", **(headers or {})}
+        if self._token:
+            request_headers["Authorization"] = f"Bearer {self._token}"
+        return self._transport.send(
+            method,
+            f"{self._base_url}{path}",
+            request_headers,
             body,
             self._timeout,
         )

@@ -26,6 +26,21 @@ class AuthResponse(BaseModel):
     user: UserProfile
 
 
+class PasswordChangeResponse(BaseModel):
+    status: Literal["ok"] = "ok"
+    message: str = Field(min_length=1, max_length=200)
+
+
+class ForgotPasswordResponse(BaseModel):
+    status: Literal["ok"] = "ok"
+    message: str = Field(min_length=1, max_length=200)
+
+
+class PasswordResetResponse(BaseModel):
+    status: Literal["ok"] = "ok"
+    message: str = Field(min_length=1, max_length=200)
+
+
 class ArtifactInfo(BaseModel):
     name: str
     kind: Literal["image", "json", "csv", "yaml", "text", "file"] = "file"
