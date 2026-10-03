@@ -14,6 +14,7 @@ def test_seismic_explorer_renders_and_switching_dataset_clears_stale_view():
     ).run(timeout=20)
     assert not app.exception
     assert len(app.get("file_uploader")) == 1
+    assert not any(button.label == "Track selected synthetic horizon" for button in app.button)
     assert any(button.label == "Validate upload" for button in app.button)
     assert any("2D RSF" in item.value for item in app.markdown)
     next(button for button in app.button if button.label == "Open dataset").click().run(timeout=20)

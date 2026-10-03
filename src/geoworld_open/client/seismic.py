@@ -13,7 +13,7 @@ from pydantic import Field, model_validator
 from .execution import ExecutionContract
 
 
-SeismicFormat = Literal["segy", "rsf"]
+SeismicFormat = Literal["segy", "rsf", "synthetic"]
 SeismicDimension = Literal["2d", "3d"]
 VerticalDomain = Literal["time", "depth"]
 ViewKind = Literal["auto", "section", "inline", "crossline", "vertical_slice", "trace", "subvolume"]

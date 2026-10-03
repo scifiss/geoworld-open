@@ -1,0 +1,114 @@
+{
+  "clean": {
+    "metrics": {
+      "mae_ms": 0.0,
+      "rmse_ms": 0.0,
+      "failure_rate": 0.0,
+      "coverage": 1.0,
+      "picked_traces": 64,
+      "total_traces": 64,
+      "failure_tolerance_ms": 8.0
+    },
+    "runtime_s": 0.004596041981130838,
+    "parameters": {
+      "generator": "geoworld-horizon-synthetic-v0",
+      "case": "clean",
+      "random_seed": 20261003,
+      "shape": [
+        24,
+        64,
+        256
+      ],
+      "sample_interval_s": 0.004,
+      "ricker_frequency_hz": 30.0,
+      "noise_std": 0.0,
+      "fault_throw_ms": 0.0,
+      "secondary_reflector_offset_ms": 168.0,
+      "source_sha256": "93dad0577c759721179d6e8b9cc6875db65a07e772f30a3c2b0c91357d426536"
+    }
+  },
+  "noisy": {
+    "metrics": {
+      "mae_ms": 0.0,
+      "rmse_ms": 0.0,
+      "failure_rate": 0.6875,
+      "coverage": 0.3125,
+      "picked_traces": 20,
+      "total_traces": 64,
+      "failure_tolerance_ms": 8.0
+    },
+    "runtime_s": 0.0017710330430418253,
+    "parameters": {
+      "generator": "geoworld-horizon-synthetic-v0",
+      "case": "noisy",
+      "random_seed": 20261003,
+      "shape": [
+        24,
+        64,
+        256
+      ],
+      "sample_interval_s": 0.004,
+      "ricker_frequency_hz": 30.0,
+      "noise_std": 0.15,
+      "fault_throw_ms": 0.0,
+      "secondary_reflector_offset_ms": 168.0,
+      "source_sha256": "54a4dd291c1f7339e58b9085b22dc3531ad0f96672df896a5baa9dffc0bb9ca7"
+    }
+  },
+  "fault": {
+    "metrics": {
+      "mae_ms": 0.0,
+      "rmse_ms": 0.0,
+      "failure_rate": 0.5,
+      "coverage": 0.5,
+      "picked_traces": 32,
+      "total_traces": 64,
+      "failure_tolerance_ms": 8.0
+    },
+    "runtime_s": 0.0031871660030446947,
+    "parameters": {
+      "generator": "geoworld-horizon-synthetic-v0",
+      "case": "fault",
+      "random_seed": 20261003,
+      "shape": [
+        24,
+        64,
+        256
+      ],
+      "sample_interval_s": 0.004,
+      "ricker_frequency_hz": 30.0,
+      "noise_std": 0.05,
+      "fault_throw_ms": 48.0,
+      "secondary_reflector_offset_ms": 168.0,
+      "source_sha256": "edea742913a4956a2461c1847c18a8599ff2916e812a5240c6c6f618bf080825"
+    }
+  },
+  "stress": {
+    "metrics": {
+      "mae_ms": 0.0,
+      "rmse_ms": 0.0,
+      "failure_rate": 0.984375,
+      "coverage": 0.015625,
+      "picked_traces": 1,
+      "total_traces": 64,
+      "failure_tolerance_ms": 8.0
+    },
+    "runtime_s": 0.001335316977929324,
+    "parameters": {
+      "generator": "geoworld-horizon-synthetic-v0",
+      "case": "stress",
+      "random_seed": 20261003,
+      "shape": [
+        24,
+        64,
+        256
+      ],
+      "sample_interval_s": 0.004,
+      "ricker_frequency_hz": 30.0,
+      "noise_std": 0.65,
+      "fault_throw_ms": 0.0,
+      "secondary_reflector_offset_ms": 168.0,
+      "source_sha256": "db4cfaac04432464d28997ba9b2523b533417b9553155187a74d507cece85b31"
+    }
+  }
+}

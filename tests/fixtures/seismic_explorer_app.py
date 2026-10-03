@@ -39,6 +39,9 @@ def view(request):
 
 
 class API:
+    def list_horizon_benchmarks(self):
+        return SeismicDatasetCatalog()
+
     def list_seismic_datasets(self):
         return SeismicDatasetCatalog(datasets=DATASETS)
 
