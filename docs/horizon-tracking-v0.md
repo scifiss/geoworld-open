@@ -116,6 +116,16 @@ and a downloadable derived JSON result. Changing section, dataset or tracking
 parameters clears stale results. Field datasets have no tracking action. The
 frontend remains HTTP-only; it does not import private backend code.
 
+The normal Studio workspace exposes Seismic Explorer directly. Its wide layout
+keeps the seismic view and deterministic conversation side by side; narrow
+screens stack the conversation below the view. The fault benchmark below shows
+the truth overlay, the picked segment, and an unconnected gap where propagation
+abstained.
+
+![Seismic Explorer wide workspace](assets/seismic-explorer-workspace.png)
+
+![Seismic Explorer narrow stacked workspace](assets/seismic-explorer-narrow.png)
+
 ## Limits and deferred work
 
 V0 assumes a strong, coherent same-polarity event on regular time-sampled data.

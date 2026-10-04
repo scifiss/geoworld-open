@@ -12,9 +12,9 @@ def test_seed_required_tracking_errors_and_section_switch_clear_result():
 
     app = AppTest.from_file(str(Path(__file__).parent / "fixtures/horizon_explorer_app.py")).run(timeout=20)
     assert not app.exception
-    app.button(key="seismic_open").click().run(timeout=20)
-    assert not app.exception
     assert app.button(key="horizon_track").disabled
+    assert any("Synthetic benchmark" in item.value for item in app.markdown)
+    assert app.text_input(key="seismic_chat_prompt").disabled
     prefix = "horizon_" + "c" * 24 + "_inline_1212"
     assert app.number_input(key=prefix + "_trace").value is None
     app.number_input(key=prefix + "_trace").set_value(16)
@@ -22,7 +22,7 @@ def test_seed_required_tracking_errors_and_section_switch_clear_result():
     app.button(key="horizon_track").click().run(timeout=20)
     assert not app.exception
     assert app.session_state["horizon_result"].metrics["failure_rate"] == .5
-    assert any("Tracking status" in item.value and "partial" in item.value for item in app.markdown)
+    assert any("Horizon result" in item.value and "partial" in item.value for item in app.markdown)
     assert len(app.get("plotly_chart")) == 1
     assert len(app.get("download_button")) == 1
     app.number_input(key=prefix + "_time").set_value(.32).run(timeout=20)
@@ -33,9 +33,7 @@ def test_seed_required_tracking_errors_and_section_switch_clear_result():
     app.selectbox(key="horizon_direction").set_value("crossline").run(timeout=20)
     assert not app.exception
     assert "horizon_result" not in app.session_state
-    assert len(app.get("plotly_chart")) == 0
-    app.button(key="seismic_open").click().run(timeout=20)
-    assert not app.exception
+    assert len(app.get("plotly_chart")) == 1
     assert app.button(key="horizon_track").disabled
 
 
@@ -59,3 +57,8 @@ def test_horizon_plot_does_not_mutate_and_has_truth_picks_and_error():
     assert view.model_dump_json() == original
     assert result.model_dump_json() == original_result
     assert {trace.name for trace in figure.data} >= {"Synthetic truth", "Seeded pick", "Error (ms)", "No pick"}
+    pick_trace = next(trace for trace in figure.data if trace.name == "Seeded pick")
+    error_trace = next(trace for trace in figure.data if trace.name == "Error (ms)")
+    assert pick_trace.connectgaps is False
+    assert error_trace.connectgaps is False
+    assert any(value is None for value in pick_trace.y)

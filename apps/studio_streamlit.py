@@ -1185,9 +1185,20 @@ def render_manual_workspace(api: GeoWorldBackendClient) -> None:
 
 
 def render_workspace(api: GeoWorldBackendClient) -> None:
+    requested = st.session_state.pop("requested_studio_workspace", None)
+    if requested in {"Ask or Build", "Seismic Explorer"}:
+        st.session_state["studio_workspace"] = requested
+    workspace = st.radio(
+        "Studio workspace", ["Ask or Build", "Seismic Explorer"], horizontal=True,
+        key="studio_workspace",
+    )
+    if workspace == "Seismic Explorer":
+        from geoworld_open.studio_seismic import render_seismic_explorer
+        render_seismic_explorer(api)
+        return
     with st.expander("Advanced: manual tools / debugging"):
-        manual = st.checkbox("Use manual tools", key="manual_tools")
-        st.caption("Optional compatibility tools. Normally, describe your task below and let GeoWorld select it.")
+        manual = st.checkbox("Use compatibility tools", key="manual_tools")
+        st.caption("Optional manual access to legacy and local scientific workspaces.")
     if manual:
         render_manual_workspace(api)
     else:

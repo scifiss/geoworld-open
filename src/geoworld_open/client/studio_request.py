@@ -11,7 +11,7 @@ class StudioRequest(ReferenceContract):
 
 
 class StudioIntent(ReferenceContract):
-    operation: Literal["question", "build", "preview", "rtm", "forward", "fwi", "las", "unsupported"]
+    operation: Literal["question", "build", "preview", "rtm", "forward", "fwi", "las", "seismic", "unsupported"]
     dataset: Literal["marmousi1", "marmousi2", "synthetic"] | None = None
     prepare_only: bool = False
     issues: list[str] = Field(default_factory=list, max_length=20)
@@ -19,6 +19,6 @@ class StudioIntent(ReferenceContract):
 
 class StudioDecision(ReferenceContract):
     interpretation: StudioIntent
-    route: Literal["ask_question", "build_model", "marmousi_model", "deepwave_reference", "model_rtm", "model_forward", "bounded_fwi", "configurable_marmousi_fwi", "las_quicklook", "blocked"]
+    route: Literal["ask_question", "build_model", "marmousi_model", "deepwave_reference", "model_rtm", "model_forward", "bounded_fwi", "configurable_marmousi_fwi", "las_quicklook", "seismic_explorer", "blocked"]
     message: str
     llm: dict[str, Any] | None = None
