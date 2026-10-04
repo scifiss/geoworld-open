@@ -47,11 +47,12 @@ def test_html_export_download_and_unified_view_preserve_result(studio_server, tm
         assert "Build shale, high-porosity sand" in path.read_text()
         assert "private-account@example.test" not in path.read_text()
         assert page.locator("#fixture-run-count").inner_text() == count
-        page.get_by_text("Advanced: manual tools / debugging", exact=True).click()
+        if not page.get_by_text("Use compatibility tools", exact=True).is_visible():
+            page.get_by_text("Advanced: manual tools / debugging", exact=True).click()
         # Streamlit's styled checkbox wraps a visually hidden input. Click the
         # visible associated label, as a user does, rather than its input box.
-        page.get_by_text("Use manual tools", exact=True).click()
-        page.get_by_role("button", name="Interpret request", exact=True).wait_for()
+        page.get_by_text("Use compatibility tools", exact=True).click()
+        page.get_by_role("button", name="Send", exact=True).wait_for()
         # Streamlit briefly retains stale elements until the rerun completes.
         page.get_by_role("button", name="Determine route", exact=True).wait_for(state="hidden")
         assert page.get_by_text("Offline display test — no model has been run.", exact=True).is_visible()
@@ -178,29 +179,25 @@ def test_normal_studio_layout_and_native_pdf_without_capture_mode(studio_server,
             errors = []
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.on("console", lambda message: errors.append(message.text) if message.type == "error" else None)
-            page.goto(studio_server)
+            page.goto(studio_server + "?assistant_only=1")
             page.get_by_role("tab", name="Model & Figures", exact=True).click()
-            prompt = page.get_by_role("textbox", name="What would you like GeoWorld to do?")
+            prompt = page.get_by_role("textbox", name="Message GeoWorld")
             # Streamlit can mount a textbox before its session value hydrates.
             playwright.expect(prompt).to_have_value(
                 "Build shale, high-porosity sand, and shale. Add one dipping fault.\n"
                 "Generate Vp, Vs, density, impedance, reflectivity, synthetic seismic. List assumptions."
             )
             original_prompt = prompt.input_value()
-            workflow = page.locator(".st-key-studio_workflow")
+            workflow = page.locator(".st-key-assistant_workspace_layout > div > [data-testid='stHorizontalBlock'] > [data-testid='stColumn']").first
             results = page.locator(".st-key-studio_results")
-            layout = page.get_by_role("combobox", name="Page layout", exact=True)
+            assistant = page.locator(".st-key-assistant_panel")
 
             def columns(expected):
                 page.wait_for_function("""two => {
-                    const left = document.querySelector('.st-key-studio_workflow').getBoundingClientRect();
-                    const right = document.querySelector('.st-key-studio_results').getBoundingClientRect();
-                    return two ? Math.abs(left.y - right.y) < 1 && left.right < right.x : left.bottom <= right.y;
+                    const left = document.querySelector('.st-key-assistant_workspace_layout > div > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]').getBoundingClientRect();
+                    const right = document.querySelector('.st-key-assistant_panel').getBoundingClientRect();
+                    return two ? left.right <= right.x : left.bottom <= right.y;
                 }""", arg=expected)
-
-            def choose(value):
-                layout.click()
-                page.get_by_role("option", name=value, exact=True).click()
 
             columns(True)  # Auto responds to main content width; no screenshot mode needed.
             assert page.get_by_test_id("stSidebar").is_visible()
@@ -214,35 +211,30 @@ def test_normal_studio_layout_and_native_pdf_without_capture_mode(studio_server,
             assert not page.get_by_text("Screenshot / clean report", exact=True).count()
             assert not page.locator("#gw-studio-capture-toolbar").count()
             assert prompt.evaluate("node => getComputedStyle(node).fontSize") == "18px"
-            page.get_by_role("button", name="Run model", exact=True).is_visible()
+            assert page.get_by_role("button", name="Send", exact=True).is_visible()
             main_box = page.get_by_test_id("stMain").bounding_box()
             right = results.bounding_box()
             # No fixed 1240/1600px cap or unused right column.
-            assert main_box["x"] + main_box["width"] - (right["x"] + right["width"]) <= 24
+            assistant_box = assistant.bounding_box()
+            assert main_box["x"] + main_box["width"] - (assistant_box["x"] + assistant_box["width"]) <= 24
             assert workflow.bounding_box()["x"] - main_box["x"] <= 24
             image = page.get_by_role("tabpanel", name="Model & Figures", exact=True).locator("img").first
             playwright.expect(image).to_be_visible()
             assert image.bounding_box()["width"] >= right["width"] - 5
 
-            choose("One column")
-            columns(False)
             assert prompt.input_value() == original_prompt
-            choose("Two columns")
             columns(True)
-            choose("Auto")
             columns(True)
             # Resizing is CSS-only, with no server rerun or scientific submission.
             runs = page.locator("#fixture-run-count").inner_text()
             page.set_viewport_size({"width": 1200, "height": 900})
-            columns(False)
-            assert page.locator("#fixture-run-count").inner_text() == runs
-            choose("Two columns")  # Deliberate override where both columns still fit.
             columns(True)
-            choose("Auto")
-            columns(False)
+            assert page.locator("#fixture-run-count").inner_text() == runs
+            columns(True)
+            columns(True)
             page.set_viewport_size({"width": 1900, "height": 1000})
             columns(True)
-            main_box, right = page.get_by_test_id("stMain").bounding_box(), results.bounding_box()
+            main_box, right = page.get_by_test_id("stMain").bounding_box(), assistant.bounding_box()
             assert main_box["x"] + main_box["width"] - (right["x"] + right["width"]) <= 24
 
             # Export is a sidebar action; native print CSS changes nothing persistently.
@@ -282,8 +274,7 @@ def test_normal_studio_layout_and_native_pdf_without_capture_mode(studio_server,
             playwright.expect(print_button).not_to_be_visible()
             page.screenshot(path=str(tmp_path / "studio-responsive-desktop.png"))
 
-            # Explicit two columns still stack on small screens; no horizontal clipping.
-            choose("Two columns")
+            # The same assistant stacks below the workspace on small screens.
             for width in (760, 375):
                 page.set_viewport_size({"width": width, "height": 900})
                 columns(False)
@@ -318,7 +309,7 @@ def test_long_studio_results_remain_complete_in_layout_and_pdf(studio_server, tm
                 assert box["width"] / box["height"] == pytest.approx(ratio, rel=.01)
             metrics = page.evaluate("""() => {
                 const main = document.querySelector('[data-testid="stMain"]');
-                const end = document.querySelector('.st-key-studio_workspace_layout').getBoundingClientRect();
+                const end = document.querySelector('.st-key-assistant_workspace_layout').getBoundingClientRect();
                 return {height: main.scrollHeight, contentBottom: end.bottom - main.getBoundingClientRect().top + main.scrollTop};
             }""")
             assert 0 <= metrics["height"] - metrics["contentBottom"] <= 24, metrics

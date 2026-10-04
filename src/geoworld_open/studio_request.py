@@ -54,42 +54,38 @@ def render_build(api, submit, prompt, *, prepare=False, prepare_only=False):
             st.error(str(exc))
 
 
-def render_request(api, submit, render_las):
-    prompt = st.text_area("What would you like GeoWorld to do?", key="prompt", height=130,
-        placeholder="Explain seismic imaging, build shale–sand–shale, or show Marmousi 1…")
-    st.caption("Describe the task here. GeoWorld selects the tool; you review the preparation before a simulation runs.")
-    with st.expander("What can I demo here?"):
-        st.markdown("**Questions:** Explain what a seismic survey can and cannot tell us.\n\n"
-                    "**Simple model:** Build shale, high-porosity sand, and shale with one dipping fault. Generate Vp, Vs, density, impedance and reflectivity.\n\n"
-                    "**Benchmark preview:** Show Marmousi 1. Inspect Vp or density and crop in metres; this does not run RTM.\n\n"
-                    "**Well logs:** Inspect my uploaded LAS logs. Use GW-DEMO-01 and GW-DEMO-02.\n\n"
-                    "Marmousi 2 and Deepwave numerical runs require the enabled local backend and installed data. "
-                    "The first Marmousi 1 preview may take a few seconds to download and verify its published files.")
-    if st.button("Interpret request", type="primary", disabled=not prompt.strip()):
-        # Model-explorer widgets are below this control, so clearing their
-        # prior keys here is safe and prevents prompt/manual state crossover.
-        for key in list(st.session_state):
-            if key.startswith("marmousi_"):
-                st.session_state.pop(key, None)
-        for key in ("studio_decision", "studio_prepare_attempted", "studio_request_error", "prepared_preview",
-                    "reference_preview", "rtm_preview", "marmousi_interpretation", "marmousi_base", "marmousi_preview",
-                    "marmousi_load_error", "unified_fallback_confirmed", "rtm_model_approved", "fwi_preview", "fwi_prompt",
-                    "configurable_fwi_conversation", "configurable_fwi_preview", "configurable_fwi_prompt"):
+def submit_request(api, prompt):
+    """Explicit submission only; the protected backend remains the route authority."""
+    for key in list(st.session_state):
+        if key.startswith("marmousi_"):
             st.session_state.pop(key, None)
-        st.session_state["studio_request_prompt"] = prompt
-        try:
-            with st.spinner("Interpreting your request with the configured AI…"):
-                st.session_state["studio_decision"] = api.interpret_studio(prompt)
-        except GeoWorldClientError as exc:
-            st.session_state["studio_request_error"] = str(exc)
-    if prompt != st.session_state.get("studio_request_prompt"):
-        if st.session_state.get("studio_decision"):
-            st.info("Request edited. Interpret it again before preparing or running. Your saved result is unchanged.")
-        return
+    for key in ("studio_decision", "studio_prepare_attempted", "studio_request_error", "prepared_preview",
+                "reference_preview", "rtm_preview", "marmousi_interpretation", "marmousi_base", "marmousi_preview",
+                "marmousi_load_error", "unified_fallback_confirmed", "rtm_model_approved", "fwi_preview", "fwi_prompt",
+                "configurable_fwi_conversation", "configurable_fwi_preview", "configurable_fwi_prompt"):
+        st.session_state.pop(key, None)
+    st.session_state["studio_request_prompt"] = prompt
+    try:
+        with st.spinner("GeoWorld is understanding your request…"):
+            decision = api.interpret_studio(prompt)
+        st.session_state["studio_decision"] = decision
+        if decision.route == "seismic_explorer":
+            command = seismic_workspace_command(prompt)
+            if command:
+                st.session_state["seismic_unified_request"] = command
+        return decision
+    except GeoWorldClientError as exc:
+        st.session_state["studio_request_error"] = str(exc)
+        return None
+
+
+def render_request(api, submit, render_las):
+    """Render the accepted request without adding a workflow-specific composer."""
+    prompt = st.session_state.get("studio_request_prompt", "")
     if st.session_state.get("studio_request_error"):
         st.error(st.session_state["studio_request_error"])
     decision = st.session_state.get("studio_decision")
-    if decision is None:
+    if decision is None or not hasattr(decision, "route"):
         return
     if decision.llm:
         st.caption(execution_model_line(decision.llm, purpose="Request understanding"))
@@ -130,11 +126,8 @@ def render_request(api, submit, render_las):
     elif decision.route == "las_quicklook":
         render_las(api)
     elif decision.route == "seismic_explorer":
-        st.session_state["requested_studio_workspace"] = "Seismic Explorer"
-        command = seismic_workspace_command(prompt)
-        if command:
-            st.session_state["seismic_unified_request"] = command
-        st.rerun()
+        from geoworld_open.studio_seismic import render_seismic_explorer
+        render_seismic_explorer(api)
     elif decision.route == "ask_question":
         if prepare_only:
             st.info("Question workflow selected. No answer job submitted because you requested preparation only.")

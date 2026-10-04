@@ -43,4 +43,4 @@ st.session_state.setdefault(
 )
 
 st.set_page_config(page_title="Seismic Explorer workspace", layout="wide")
-render_seismic_explorer(api)
+render_seismic_explorer(api, dataset=api.dataset)

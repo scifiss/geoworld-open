@@ -7,17 +7,11 @@ calculations, source image artifacts, authentication, or backend configuration.
 
 The normal Studio page is responsive; no screenshot mode is needed.
 
-- **Page layout → Auto** (default): request/workflow on the left and results on
-  the right when the main content area is wide enough. It stacks on smaller screens.
-- **One column**: always puts results below the workflow.
-- **Two columns**: prefers side-by-side results at somewhat narrower widths than
-  Auto, but still stacks on small screens so inputs and figures remain usable.
-
-These choices are in the sidebar and stay in the current session. Auto measures
-the available main area, excluding the sidebar, rather than just the window.
-Before a result is available, the workflow uses one column without an empty
-results column. Layout changes do not submit a scientific job. Resizing in Auto
-is CSS-only and does not rerun the application.
+The contextual workspace and results occupy the left panel. The same GeoWorld
+Assistant history/composer occupies the right panel for every workflow. Below
+900 px it stacks beneath the workspace. There is no page-layout or task-category
+selector. Resizing is CSS-only and does not submit a request or scientific job.
+See the [current interaction flow and screenshots](studio-assistant-interface.md).
 
 The page uses the available main width with small side margins, instead of a
 fixed 1240/1600-pixel cap. Excess bottom padding is removed. If content is shorter
@@ -79,8 +73,7 @@ remain hidden. Review visible material first: PDF is not a general-purpose
 privacy/redaction filter. Expanded technical details may contain sensitive
 project information.
 
-The layout adapts to the printable paper width; **One column** remains a
-single-column print choice. Long results paginate instead of being cropped to
+The layout adapts to the printable paper width. Long results paginate instead of being cropped to
 force them onto one sheet. You can adjust paper size and scale in print preview.
 Saving and cancelling do not rerun a scientific job, require screenshot mode,
 or leave the interface hidden. The regular browser Print command works too.

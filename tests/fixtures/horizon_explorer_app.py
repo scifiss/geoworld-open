@@ -52,4 +52,5 @@ class API:
 
 
 if __name__ == "__main__":
-    render_seismic_explorer(API())
+    api = API()
+    render_seismic_explorer(api, dataset=api.dataset)

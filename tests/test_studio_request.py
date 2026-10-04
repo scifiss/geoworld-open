@@ -47,10 +47,11 @@ def completed(app):
 def test_default_is_one_prompt_no_workspace_choices_or_dataset_default(app):
     app.run(timeout=20)
     assert not app.exception
-    assert [t.label for t in app.text_area] == ["What would you like GeoWorld to do?"]
+    assert [t.label for t in app.text_area] == ["Message GeoWorld"]
     assert not any(r.label in {"Workspace", "Intent"} for r in app.radio)
     assert not any(s.label == "Benchmark dataset" for s in app.selectbox)
-    assert app.radio(key="studio_workspace").options == ["Ask or Build", "Seismic Explorer"]
+    assert not any(r.label == "Studio workspace" for r in app.radio)
+    assert any("GeoWorld Assistant" in item.value for item in app.markdown)
 
 
 def _seismic_workspace_backend(monkeypatch, turns=None):
@@ -77,9 +78,10 @@ def _seismic_workspace_backend(monkeypatch, turns=None):
 def test_seismic_explorer_is_direct_normal_studio_workspace(app, monkeypatch):
     _seismic_workspace_backend(monkeypatch)
     app.run(timeout=20)
-    app.radio(key="studio_workspace").set_value("Seismic Explorer").run(timeout=20)
+    app.session_state["studio_active_context"] = "seismic"
+    app.run(timeout=20)
     assert not app.exception
-    assert any("GeoWorld Seismic Chat" in item.value for item in app.markdown)
+    assert any("GeoWorld Assistant" in item.value for item in app.markdown)
     assert len(app.get("plotly_chart")) == 1
 
 
@@ -94,10 +96,10 @@ def test_unified_explicit_inline_request_routes_and_applies_in_explorer(app, mon
         ),
     )
     app.run(timeout=20)
-    app.text_area(key="prompt").set_value("show inline 1212 of my seismic").run()
-    button(app, "Interpret request").click().run(timeout=20)
+    app.text_area(key="assistant_prompt").set_value("show inline 1212 of my seismic").run()
+    button(app, "Send").click().run(timeout=20)
     assert not app.exception
-    assert app.radio(key="studio_workspace").value == "Seismic Explorer"
+    assert app.session_state["studio_active_context"] == "seismic"
     assert turns == [("show inline 1212 of my seismic", {
         "dataset_id": DATASETS[0].dataset_id, "conversation_id": None,
     })]
@@ -119,14 +121,14 @@ def test_hosted_marmousi1_shows_plot_and_only_available_properties(app, monkeypa
         return result
     monkeypatch.setattr(GeoWorldBackendClient, "preview_marmousi", preview)
     app.run(timeout=20)
-    app.text_area(key="prompt").set_value("show Marmousi 1").run()
-    button(app, "Interpret request").click().run(timeout=20)
+    app.text_area(key="assistant_prompt").set_value("show Marmousi 1").run()
+    button(app, "Send").click().run(timeout=20)
     assert not app.exception
     assert len(app.get("plotly_chart")) == 1
     assert app.selectbox(key="marmousi_property").options == ["vp", "density"]
     assert not any(b.label in {"Run verified reference", "Run model"} for b in app.button)
     assert button(app, "Save model preview & provenance")
-    assert any("What can I demo here?" == e.label for e in app.expander)
+    assert any("Examples" == e.label for e in app.expander)
 
 
 def test_marmousi2_interpretation_drives_preview_and_rerun_is_free(app, monkeypatch):
@@ -142,18 +144,18 @@ def test_marmousi2_interpretation_drives_preview_and_rerun_is_free(app, monkeypa
     monkeypatch.setattr(GeoWorldBackendClient, "interpret_marmousi", model)
     monkeypatch.setattr(GeoWorldBackendClient, "preview_marmousi", lambda _self, selection: make_preview(selection))
     app.run(timeout=20)
-    app.text_area(key="prompt").set_value("Show Marmousi 2").run()
-    button(app, "Interpret request").click().run(timeout=20)
+    app.text_area(key="assistant_prompt").set_value("Show Marmousi 2").run()
+    button(app, "Send").click().run(timeout=20)
     assert not app.exception
     assert app.session_state["marmousi_preview"].selection.dataset == "marmousi2"
     assert any("**Dataset:** Marmousi 2" == m.value for m in app.markdown)
     assert not any(s.label == "Benchmark dataset" for s in app.selectbox)
     assert not any("no LLM" in b.label for b in app.button)
-    app.selectbox(key="display_layout").set_value("Two columns").run(timeout=20)
+    app.slider(key="display_text_px").set_value(20).run(timeout=20)
     assert not app.exception and len(calls) == 2
-    app.text_area(key="prompt").set_value("Run FWI on Marmousi 2").run()
-    assert not any(b.label == "Save model preview & provenance" for b in app.button)
-    assert len(calls) == 2
+    app.text_area(key="assistant_prompt").set_value("Run FWI on Marmousi 2").run()
+    assert any(b.label == "Save model preview & provenance" for b in app.button)
+    assert len(calls) == 2  # Editing the shared draft keeps the accepted workspace visible.
 
 
 def test_failed_interpretation_can_retry_to_valid_without_stale_model(app, monkeypatch):
@@ -181,19 +183,19 @@ def test_failed_interpretation_can_retry_to_valid_without_stale_model(app, monke
     )
 
     app.run(timeout=20)
-    app.text_area(key="prompt").set_value("Show Marmousi 1").run()
-    button(app, "Interpret request").click().run(timeout=20)
+    app.text_area(key="assistant_prompt").set_value("Show Marmousi 1").run()
+    button(app, "Send").click().run(timeout=20)
     assert not app.exception
     assert any("temporary interpretation failure" in item.value for item in app.error)
     assert "marmousi_base" not in app.session_state
 
-    button(app, "Interpret request").click().run(timeout=20)
+    button(app, "Send").click().run(timeout=20)
     assert not app.exception
     assert app.session_state["marmousi_preview"].selection.dataset == "marmousi1"
     assert len(attempts) == 2
 
 
-def test_new_preview_request_hides_previous_rtm_result(app, monkeypatch):
+def test_new_preview_replaces_main_result_and_keeps_previous_answer_in_history(app, monkeypatch):
     completed(app)
 
     def route(_self, prompt):
@@ -213,12 +215,13 @@ def test_new_preview_request_hides_previous_rtm_result(app, monkeypatch):
 
     app.run(timeout=20)
     assert any("Saved RTM result" in item.value for item in app.markdown)
-    app.text_area(key="prompt").set_value("Show Marmousi 2").run()
-    button(app, "Interpret request").click().run(timeout=20)
+    app.text_area(key="assistant_prompt").set_value("Show Marmousi 2").run()
+    button(app, "Send").click().run(timeout=20)
 
     assert not app.exception
     assert any("**Dataset:** Marmousi 2" == item.value for item in app.markdown)
-    assert not any("Saved RTM result" in item.value for item in app.markdown)
+    assert not any(item.value == "GeoWorld result" for item in app.subheader)
+    assert any("Saved RTM result" in item.value for item in app.markdown)
     assert app.session_state["last_job_id"] == "a" * 32
 
 
@@ -259,8 +262,8 @@ def test_export_keeps_reference_and_does_not_reinterpret_or_submit(app, monkeypa
     monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio", route)
     monkeypatch.setattr(GeoWorldBackendClient, "preview_reference", prepare)
     app.run(timeout=20)
-    app.text_area(key="prompt").set_value("Prepare the RTM reference but do not run").run()
-    button(app, "Interpret request").click().run(timeout=20)
+    app.text_area(key="assistant_prompt").set_value("Prepare the RTM reference but do not run").run()
+    button(app, "Send").click().run(timeout=20)
     assert not app.exception and button(app, "Run verified reference").disabled
     button(app, "Prepare HTML report").click().run(timeout=20)
     assert not app.exception
@@ -282,11 +285,15 @@ def test_reopen_saved_job_restores_prompt_without_llm_or_job(app, monkeypatch):
         result=JobResult(intent="deepwave_reference", reason="replay", answer="Saved result"))
     monkeypatch.setattr(GeoWorldBackendClient, "get_job", lambda *_: job)
     monkeypatch.setattr(GeoWorldBackendClient, "get_artifact", lambda *_: json.dumps({"prompt": "Recorded question"}).encode())
+    _seismic_workspace_backend(monkeypatch)
+    app.session_state["studio_active_context"] = "seismic"
     app.run(timeout=20)
     app.text_input(key="saved_job_id").set_value("b"*32).run()
     button(app, "Open run").click().run(timeout=20)
     assert not app.exception and app.session_state["last_job_id"] == "b"*32
     assert app.session_state["last_submitted_prompt"] == "Recorded question"
+    assert app.session_state["studio_active_context"] == "request"
+    assert any("Saved result" in item.value for item in app.markdown)
     button(app, "Prepare HTML report").click().run(timeout=20)
     assert "Recorded question" in app.session_state["clean_report"][2]
     monkeypatch.setattr(GeoWorldBackendClient, "get_job", lambda *_: (_ for _ in ()).throw(GeoWorldClientError("Job not found")))
@@ -324,8 +331,8 @@ def test_unsupported_request_shows_explanation_without_model_controls(app, monke
         interpretation=StudioIntent(operation="fwi", dataset="marmousi1"), route="blocked", message="FWI is not implemented."))
     completed(app)
     app.run(timeout=20)
-    app.text_area(key="prompt").set_value("Run FWI using Marmousi1 cropped x=0 to x=1000").run()
-    button(app, "Interpret request").click().run(timeout=20)
+    app.text_area(key="assistant_prompt").set_value("Run FWI using Marmousi1 cropped x=0 to x=1000").run()
+    button(app, "Send").click().run(timeout=20)
     assert not app.exception and any("FWI is not implemented" in w.value for w in app.warning)
     assert not any("Run model" == b.label or "Run verified" in b.label for b in app.button)
     assert app.session_state["last_job_id"] == "a"*32
@@ -346,8 +353,8 @@ def test_question_route_submits_existing_qa_workflow_and_shows_answer(app, monke
         job_id="d"*32, status="succeeded", progress="complete",
         result=JobResult(intent="qa", reason="question", answer="AI = density multiplied by Vp.")))
     app.run(timeout=20)
-    app.text_area(key="prompt").set_value(prompt).run()
-    button(app, "Interpret request").click().run(timeout=20)
+    app.text_area(key="assistant_prompt").set_value(prompt).run()
+    button(app, "Send").click().run(timeout=20)
     assert not app.exception
     assert len(submitted) == 1
     assert submitted[0].mode_hint == "ask_question" and submitted[0].prompt == prompt
