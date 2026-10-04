@@ -26,8 +26,8 @@ def test_fwi_preflight_preview_and_prepare_only_never_run(monkeypatch,variant):
     app.session_state['access_token']='test-only-token'
     app.session_state['user_email']='test@example.test'
     app.run(timeout=20)
-    next(t for t in app.text_area if t.label=='What would you like GeoWorld to do?').set_value('Prepare bounded Marmousi 1 FWI').run(timeout=20)
-    next(b for b in app.button if b.label=='Interpret request').click().run(timeout=20)
+    next(t for t in app.text_area if t.label=='Message GeoWorld').set_value('Prepare bounded Marmousi 1 FWI').run(timeout=20)
+    next(b for b in app.button if b.label=='Send').click().run(timeout=20)
     assert not app.exception
     assert next(b for b in app.button if b.label==('Run bounded FWI' if variant=='bounded' else 'Run FWI')).disabled
     assert any('Expected time' in text.value for text in app.markdown)

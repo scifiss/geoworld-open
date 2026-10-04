@@ -4,9 +4,12 @@ The public Seismic Explorer surface contains portable request/response contracts
 an authenticated HTTP client, and Studio presentation. It has no file-reader or
 filesystem-path capability and cannot launch a numerical solver.
 
-Studio shows a dataset summary, the current bounded view, selection, and optional
-analysis. Display clipping is labeled display-only. Dataset headers, provenance,
-raw metadata, and read details stay under the collapsed Advanced section.
+Studio shows the attached data context, current bounded view, selection, and optional
+analysis beside the shared GeoWorld Assistant. Attach SEG-Y from its composer;
+synthetic Horizon V0 cases are explicit Examples, separate from user data.
+Display clipping is labeled display-only. Dataset headers, provenance,
+raw metadata, and read details stay under collapsed secondary sections. See the
+[assistant interface](studio-assistant-interface.md).
 
 The client exposes:
 

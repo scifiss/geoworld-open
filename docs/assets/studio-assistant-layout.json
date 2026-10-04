@@ -1,0 +1,36 @@
+[
+  {
+    "width": 1600,
+    "height": 1000,
+    "main": {
+      "x": 320,
+      "y": 218.390625,
+      "right": 1148,
+      "bottom": 1176.65625
+    },
+    "panel": {
+      "x": 1212,
+      "y": 218.390625
+    },
+    "composerCount": 1,
+    "sendButtonBottom": 866.25,
+    "horizontalOverflow": false
+  },
+  {
+    "width": 700,
+    "height": 2500,
+    "main": {
+      "x": 20,
+      "y": 218.390625,
+      "right": 680,
+      "bottom": 1176.65625
+    },
+    "panel": {
+      "x": 20,
+      "y": 1240.65625
+    },
+    "composerCount": 1,
+    "sendButtonBottom": 2022.921875,
+    "horizontalOverflow": false
+  }
+]

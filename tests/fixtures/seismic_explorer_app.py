@@ -7,6 +7,8 @@ from geoworld_open.client.seismic import (
     SeismicViewRequest,
 )
 from geoworld_open.studio_seismic import render_seismic_explorer
+from geoworld_open.client.studio_request import StudioDecision, StudioIntent
+from geoworld_open.studio_assistant import render_assistant_studio
 
 
 def summary(dataset_id, name):
@@ -39,6 +41,10 @@ def view(request):
 
 
 class API:
+    def interpret_studio(self, prompt):
+        return StudioDecision(interpretation=StudioIntent(operation="seismic"),
+                              route="seismic_explorer", message="Inspect the attached seismic.")
+
     def list_horizon_benchmarks(self):
         return SeismicDatasetCatalog()
 
@@ -67,4 +73,4 @@ class API:
 
 
 if __name__ == "__main__":
-    render_seismic_explorer(API())
+    render_assistant_studio(API(), render_seismic_explorer, lambda api: None)

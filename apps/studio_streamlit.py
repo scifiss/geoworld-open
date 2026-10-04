@@ -104,7 +104,7 @@ def client(token: str | None = None) -> GeoWorldBackendClient:
 def clear_session() -> None:
     clear_last_result()
     for key in list(st.session_state):
-        if key.startswith(("marmousi_", "studio_", "unified_")):
+        if key.startswith(("marmousi_", "studio_", "unified_", "assistant_", "seismic_", "horizon_")):
             st.session_state.pop(key, None)
     for key in (
         "access_token",
@@ -1185,25 +1185,29 @@ def render_manual_workspace(api: GeoWorldBackendClient) -> None:
 
 
 def render_workspace(api: GeoWorldBackendClient) -> None:
-    requested = st.session_state.pop("requested_studio_workspace", None)
-    if requested in {"Ask or Build", "Seismic Explorer"}:
-        st.session_state["studio_workspace"] = requested
-    workspace = st.radio(
-        "Studio workspace", ["Ask or Build", "Seismic Explorer"], horizontal=True,
-        key="studio_workspace",
-    )
-    if workspace == "Seismic Explorer":
-        from geoworld_open.studio_seismic import render_seismic_explorer
-        render_seismic_explorer(api)
-        return
-    with st.expander("Advanced: manual tools / debugging"):
-        manual = st.checkbox("Use compatibility tools", key="manual_tools")
-        st.caption("Optional manual access to legacy and local scientific workspaces.")
-    if manual:
-        render_manual_workspace(api)
-    else:
-        from geoworld_open.studio_request import render_request
-        render_request(api, submit_and_wait, render_las_workspace)
+    from geoworld_open.studio_assistant import render_assistant_studio
+
+    def active(client):
+        if st.session_state.get("studio_active_context") == "seismic":
+            from geoworld_open.studio_seismic import render_seismic_explorer
+            render_seismic_explorer(client)
+        else:
+            from geoworld_open.studio_request import render_request
+            with st.container(key="studio_workflow"):
+                render_request(client, submit_and_wait, render_las_workspace)
+            with st.container(key="studio_results"):
+                display_result(client, display_options)
+            if not st.session_state.get("studio_decision") and not st.session_state.get("last_job_id"):
+                st.subheader("Your workspace")
+                st.write("Ask GeoWorld a question, describe a model, or attach a file. Your active view and results appear here.")
+
+    def manual(client):
+        with st.container(key="studio_workflow"):
+            render_manual_workspace(client)
+        with st.container(key="studio_results"):
+            display_result(client, display_options)
+
+    render_assistant_studio(api, active, manual)
 
 
 def render_saved_run(api):
@@ -1230,6 +1234,8 @@ def render_saved_run(api):
                 st.session_state["last_submitted_prompt"] = prompt
                 st.session_state["last_result_source"] = "saved_run"
                 st.session_state["last_submitted_mode_hint"] = None
+                st.session_state["studio_active_context"] = "request"
+                st.session_state.pop("studio_decision", None)
                 # Job status on older backends has no correlation field. Never
                 # reuse an unrelated run's identifier or fail report recovery.
                 st.session_state["last_correlation_id"] = getattr(job.result, "correlation_id", None)
@@ -1276,8 +1282,6 @@ with st.sidebar:
         clear_session()
         st.rerun()
     render_saved_run(api)
-    st.selectbox("Page layout", ["Auto", "One column", "Two columns"], key="display_layout")
-    st.caption("Auto uses two columns when there is room. Narrow screens always stack for readability.")
     with st.expander("Display settings"):
         st.slider("Text size (px)", 16, 24, 18, key="display_text_px")
         fit_figures = st.checkbox("Fit figures to column", value=True, key="display_fit_figures")
@@ -1289,13 +1293,9 @@ with st.sidebar:
 
 st.title("🌍 GeoWorld Studio")
 st.caption(
-    "Ask a geoscience question or describe a model. The public frontend sends validated requests to the protected GeoWorld backend."
+    "Talk to GeoWorld. Your data, views and results stay in context as you work."
 )
 
-with st.container(key="studio_workspace_layout"):
-    with st.container(key="studio_workflow"):
-        render_workspace(api)
-    with st.container(key="studio_results"):
-        display_result(api, display_options)
+render_workspace(api)
 
 render_save_controls(api, display_options)

@@ -18,7 +18,8 @@ PROMPT = "Build shale, high-porosity sand, and shale. Add one dipping fault.\nGe
 if "capture_fixture_initialized" not in st.session_state:
     st.session_state.update({
         "capture_fixture_initialized": True,
-        "manual_tools": True,
+        "manual_tools": st.query_params.get("assistant_only") != "1",
+        "assistant_prompt": PROMPT,
         "access_token": "test-token", "user_email": "private-account@example.test",
         "active_workspace": "Ask or Build", "last_job_id": "job-capture",
         "last_submitted_prompt": PROMPT, "prompt": PROMPT, "runtime_prompt": PROMPT,

@@ -1,6 +1,8 @@
 """Public HTTP-only Seismic Explorer presentation."""
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import streamlit as st
 
@@ -134,67 +136,9 @@ def _merge_response(previous, current):
     old_view, old_analysis, _ = _response_parts(previous)
     return {
         "view": current.view or old_view,
-        "analysis": current.analysis if current.analysis is not None else old_analysis,
+        "analysis": current.analysis if current.view is not None else (current.analysis or old_analysis),
         "state": current.state,
     }
-
-
-def _render_chat(api, dataset, response, *, synthetic: bool) -> None:
-    st.markdown("### GeoWorld Seismic Chat")
-    st.caption(
-        "Deterministic view and analysis commands. No presentation-only LLM is used."
-    )
-    _, _, state = _response_parts(response)
-    history = [] if state is None else (
-        state.get("visible_history", []) if isinstance(state, dict) else state.visible_history
-    )
-    with st.container(key="seismic_chat_history", height=510, border=True):
-        if not history:
-            st.info(
-                "Try “show inline 1212”, “zoom from 0.3 to 0.5 seconds”, "
-                "or “show the amplitude statistics”."
-            )
-        for turn in history:
-            user_text = turn.get("user_text") if isinstance(turn, dict) else turn.user_text
-            summary = turn.get("assistant_summary") if isinstance(turn, dict) else turn.assistant_summary
-            status = turn.get("status") if isinstance(turn, dict) else turn.status
-            with st.chat_message("user"):
-                st.write(user_text)
-            with st.chat_message("assistant"):
-                st.write(summary)
-                if status != "ready":
-                    st.caption(str(status).replace("_", " ").title())
-    if error := st.session_state.pop("seismic_chat_error", None):
-        st.error(error)
-    with st.container(key="seismic_chat_composer"):
-        with st.form("seismic_chat_form", clear_on_submit=True):
-            prompt = st.text_input(
-                "Request a view or analysis",
-                placeholder="Show inline 1212",
-                disabled=synthetic,
-                key="seismic_chat_prompt",
-            )
-            sent = st.form_submit_button(
-                "Send / Apply", type="primary", disabled=synthetic or not prompt.strip(),
-                use_container_width=True,
-            )
-        if synthetic:
-            st.caption(
-                "Synthetic benchmark sections use the controls in the main panel. "
-                "Field and uploaded datasets use deterministic chat commands."
-            )
-    if sent:
-        try:
-            current = api.continue_seismic_explorer(
-                prompt, dataset_id=dataset.dataset_id,
-                conversation_id=st.session_state.get("seismic_conversation_id"),
-            )
-            st.session_state["seismic_response"] = _merge_response(response, current)
-            st.session_state["seismic_conversation_id"] = current.state.conversation_id
-            st.session_state.pop("horizon_result", None)
-        except GeoWorldClientError as exc:
-            st.session_state["seismic_chat_error"] = str(exc)
-        st.rerun()
 
 
 def _render_horizon_summary(horizon) -> None:
@@ -234,163 +178,153 @@ def _render_horizon_summary(horizon) -> None:
         st.json({"confidence": horizon.confidence, "failure_reasons": horizon.failure_reasons})
 
 
-def render_seismic_explorer(api) -> None:
-    st.subheader("Seismic Explorer")
-    st.caption(
-        "Professional workspace for bounded inspection of regular post-stack SEG-Y/RSF and "
-        "GeoWorld synthetic horizon benchmarks. No numerical solver runs."
-    )
-    st.markdown("""
-        <style>
-        .st-key-seismic_chat_composer {position: sticky; bottom: 0; z-index: 5;
-            background: var(--background-color); padding-top: .35rem;}
-        @media (max-width: 900px) {
-          .st-key-seismic_workspace > div > [data-testid="stHorizontalBlock"] {
-            flex-wrap: wrap;
-          }
-          .st-key-seismic_workspace > div > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
-            min-width: 100%; flex: 1 1 100%;
-          }
-          .st-key-seismic_chat_history {height: 360px;}
-        }
-        </style>
-    """, unsafe_allow_html=True)
+def catalog_warning_message(warning: str) -> str:
+    if "uploaded dataset is unavailable or failed revalidation" in warning.casefold():
+        return "A previously uploaded seismic file is no longer available. Reattach it to continue."
+    return warning
+
+
+def seismic_catalog(api):
+    """Read user/configured data only; retain original diagnostics for provenance."""
+    catalog = api.list_seismic_datasets()
+    st.session_state["seismic_catalog_warnings"] = list(catalog.warnings)
+    for warning in catalog.warnings:
+        logging.getLogger(__name__).warning("Seismic catalog: %s", warning)
+        st.warning(catalog_warning_message(warning))
+    return catalog
+
+
+def activate_dataset(dataset, *, demo=False):
+    """Session context only. Does not create project storage or alter source data."""
+    if st.session_state.get("seismic_dataset_id") != dataset.dataset_id:
+        for key in ("seismic_response", "seismic_conversation_id", "horizon_result",
+                    "horizon_configuration"):
+            st.session_state.pop(key, None)
+    st.session_state["seismic_dataset_id"] = dataset.dataset_id
+    st.session_state["seismic_context_dataset"] = dataset
+    st.session_state["seismic_active_dataset"] = dataset.dataset_id
+    st.session_state["studio_active_context"] = "seismic"
+    if demo:
+        st.session_state["seismic_demo_dataset"] = dataset
+    else:
+        st.session_state.pop("seismic_demo_dataset", None)
+
+
+def render_seismic_explorer(api, *, dataset=None) -> None:
+    """Contextual workspace only; the shared assistant owns requests and attachments."""
+    st.subheader("Seismic view")
     try:
-        catalog = api.list_seismic_datasets()
+        catalog = seismic_catalog(api)
     except GeoWorldClientError as exc:
         st.warning(str(exc))
         return
-    try:
-        benchmarks = api.list_horizon_benchmarks()
-        catalog = catalog.model_copy(update={"datasets": catalog.datasets + benchmarks.datasets})
-    except GeoWorldClientError:
-        st.caption("Synthetic horizon benchmarks are unavailable on this backend.")
-    for warning in catalog.warnings:
-        st.warning(warning)
-    if not catalog.datasets:
-        st.info("No seismic datasets are configured on this backend. Set an allowed seismic data root, then restart the backend.")
-        return
     by_id = {item.dataset_id: item for item in catalog.datasets}
-    with st.container(key="seismic_workspace"):
-        main, chat = st.columns([2.15, 1], gap="large")
-        with main:
-            requested_dataset = st.session_state.pop("seismic_requested_dataset", None)
-            if requested_dataset in by_id:
-                st.session_state["seismic_dataset_id"] = requested_dataset
-            selected_id = st.selectbox(
-                "Dataset", list(by_id), format_func=lambda item: by_id[item].display_name,
-                key="seismic_dataset_id",
+    demo = st.session_state.get("seismic_demo_dataset")
+    if dataset is None:
+        dataset = demo or by_id.get(st.session_state.get("seismic_dataset_id"))
+        if dataset is None and catalog.datasets and not st.session_state.get("seismic_dataset_id"):
+            dataset = catalog.datasets[0]
+    if dataset is None:
+        st.info("Attach a seismic file to continue, or open an example from the assistant.")
+        st.session_state.pop("seismic_response", None)
+        return
+    activate_dataset(dataset, demo=bool(demo) or dataset.format == "synthetic")
+    synthetic = dataset.provenance.get("horizon_tracking_scope") == "geoworld_generated_synthetic_only"
+    if synthetic:
+        st.markdown("**Synthetic benchmark** · generated truth available for evaluation")
+    else:
+        st.caption("Attached: " + dataset.display_name)
+        st.caption("View and analysis only for Horizon V0")
+    st.caption(
+        f"{dataset.dimensionality.upper()} {dataset.format.upper()} · "
+        f"{' × '.join(str(value) for value in dataset.shape)} · "
+        f"{dataset.sample_interval:g} {dataset.sample_unit} sample interval"
+    )
+    # Switching is a contextual action and never mixes examples with user data.
+    if len(by_id) > 1:
+        with st.expander("Switch attached data", expanded=False):
+            selected = st.selectbox(
+                "Available seismic files", list(by_id),
+                index=list(by_id).index(dataset.dataset_id) if dataset.dataset_id in by_id else 0,
+                format_func=lambda identity: by_id[identity].display_name,
+                key="seismic_context_choice",
             )
-            if st.session_state.get("seismic_active_dataset") != selected_id:
-                st.session_state["seismic_active_dataset"] = selected_id
-                for key in ("seismic_response", "seismic_conversation_id", "horizon_result",
-                            "horizon_configuration"):
-                    st.session_state.pop(key, None)
-            dataset = by_id[selected_id]
-            synthetic = dataset.provenance.get("horizon_tracking_scope") == "geoworld_generated_synthetic_only"
-            if synthetic:
-                st.markdown("**Synthetic benchmark** · generated truth available for evaluation")
-            else:
-                st.caption("Field/configured data · view and analysis only for Horizon V0")
-            st.write(
-                f"**{dataset.dimensionality.upper()} {dataset.format.upper()}** · "
-                f"{' × '.join(str(value) for value in dataset.shape)} · "
-                f"{dataset.sample_interval:g} {dataset.sample_unit} sample interval"
+            if st.button("Use this file", key="seismic_switch"):
+                activate_dataset(by_id[selected])
+                st.rerun()
+
+    section_options = {}
+    if synthetic:
+        columns = st.columns(2)
+        kind = columns[0].selectbox("Section direction", ["inline", "crossline"], key="horizon_direction")
+        axis = dataset.axes[0 if kind == "inline" else 1]
+        number = columns[1].number_input(
+            f"{kind.title()} number", min_value=int(axis.start), max_value=int(axis.stop),
+            value=1212 if kind == "inline" else 316, step=1, key=f"horizon_section_{kind}",
+        )
+        section_options = {"view_kind": kind, kind: number}
+    requested_view = SeismicViewRequest(dataset_id=dataset.dataset_id, **section_options)
+    response = st.session_state.get("seismic_response")
+    view, analysis, _ = _response_parts(response)
+    changed = view is None or view.dataset.dataset_id != dataset.dataset_id
+    if synthetic and view is not None:
+        changed = (
+            view.request.view_kind != requested_view.view_kind
+            or getattr(view.request, requested_view.view_kind) != getattr(requested_view, requested_view.view_kind)
+        )
+    if changed:
+        try:
+            view = api.get_seismic_view(requested_view)
+            response = {"view": view, "analysis": None, "state": None}
+            st.session_state["seismic_response"] = response
+            analysis = None
+            st.session_state.pop("horizon_result", None)
+        except GeoWorldClientError as exc:
+            st.warning(catalog_warning_message(str(exc)))
+            view = None
+
+    pending = st.session_state.pop("seismic_unified_request", None)
+    if pending:
+        if synthetic:
+            st.session_state["assistant_notice"] = (
+                "This synthetic example uses the section and Horizon V0 controls below. "
+                "Attach a seismic file for navigation and analysis requests."
             )
-            with st.expander("Add a SEG-Y dataset", expanded=False):
-                uploaded = st.file_uploader(
-                    "Upload SEG-Y", type=["sgy", "segy"], accept_multiple_files=False,
-                    key="seismic_upload",
+        else:
+            try:
+                current = api.continue_seismic_explorer(
+                    pending, dataset_id=dataset.dataset_id,
+                    conversation_id=st.session_state.get("seismic_conversation_id"),
                 )
-                if st.button(
-                    "Validate upload", disabled=uploaded is None, key="seismic_upload_submit",
-                ):
-                    try:
-                        uploaded.seek(0)
-                        record = api.upload_seismic(uploaded.name, uploaded)
-                        st.session_state["seismic_upload_notice"] = (
-                            f"{record.display_filename} is validated and ready."
-                        )
-                        if record.dataset:
-                            st.session_state["seismic_requested_dataset"] = record.dataset.dataset_id
-                        st.rerun()
-                    except GeoWorldClientError as exc:
-                        st.error(str(exc))
-            if notice := st.session_state.pop("seismic_upload_notice", None):
-                st.success(notice)
-
-            section_options = {}
-            if synthetic:
-                section_columns = st.columns(2)
-                kind = section_columns[0].selectbox(
-                    "Section direction", ["inline", "crossline"], key="horizon_direction",
-                )
-                axis = dataset.axes[0 if kind == "inline" else 1]
-                number = section_columns[1].number_input(
-                    f"{kind.title()} number", min_value=int(axis.start), max_value=int(axis.stop),
-                    value=1212 if kind == "inline" else 316, step=1,
-                    key=f"horizon_section_{kind}",
-                )
-                section_options = {"view_kind": kind, kind: number}
-            requested_view = SeismicViewRequest(dataset_id=selected_id, **section_options)
-            response = st.session_state.get("seismic_response")
-            view, analysis, _ = _response_parts(response)
-            selection_changed = view is None or view.dataset.dataset_id != selected_id
-            if synthetic and view is not None:
-                selection_changed = (
-                    view.request.view_kind != requested_view.view_kind
-                    or getattr(view.request, requested_view.view_kind) != getattr(
-                        requested_view, requested_view.view_kind
-                    )
-                )
-            if selection_changed:
-                try:
-                    view = api.get_seismic_view(requested_view)
-                    response = {"view": view, "analysis": None, "state": None}
-                    st.session_state["seismic_response"] = response
-                    analysis = None
-                    st.session_state.pop("horizon_result", None)
-                except GeoWorldClientError as exc:
-                    st.error(str(exc))
-                    view = None
-
-            pending = st.session_state.pop("seismic_unified_request", None)
-            if pending and not synthetic:
-                try:
-                    current = api.continue_seismic_explorer(
-                        pending, dataset_id=selected_id,
-                        conversation_id=st.session_state.get("seismic_conversation_id"),
-                    )
-                    response = _merge_response(response, current)
-                    st.session_state["seismic_response"] = response
-                    st.session_state["seismic_conversation_id"] = current.state.conversation_id
-                    view, analysis, _ = _response_parts(response)
-                except GeoWorldClientError as exc:
-                    st.session_state["seismic_chat_error"] = str(exc)
-            if view is not None:
-                st.write(f"**Current view:** {view.selection_summary}")
-                clip_key = f"seismic_clip_{selected_id}"
-                clip = float(st.session_state.get(clip_key, 99.0))
-                figure_slot = st.container()
-                horizon = _render_horizon_controls(api, view) if synthetic else None
-                with figure_slot:
-                    st.plotly_chart(
-                        _horizon_figure(view, horizon, clip) if horizon is not None else _figure(view, clip),
-                        width="stretch",
-                    )
-                if horizon is not None:
-                    _render_horizon_summary(horizon)
-                _render_analysis(analysis)
-                with st.expander("Display settings", expanded=False):
-                    st.slider(
-                        "Symmetric amplitude clip percentile", 90.0, 100.0, 99.0, .5,
-                        help="Display-only. Source samples and metadata are unchanged.", key=clip_key,
-                    )
-                    st.caption("Display-only clipping; this does not create processed seismic.")
-                with st.expander("Headers and provenance", expanded=False):
-                    st.json(dataset.model_dump(mode="json"))
-                    st.json(view.provenance)
-        with chat:
-            dataset = by_id[st.session_state["seismic_dataset_id"]]
-            synthetic = dataset.provenance.get("horizon_tracking_scope") == "geoworld_generated_synthetic_only"
-            _render_chat(api, dataset, st.session_state.get("seismic_response"), synthetic=synthetic)
+                response = _merge_response(response, current)
+                st.session_state["seismic_response"] = response
+                st.session_state["seismic_conversation_id"] = current.state.conversation_id
+                view, analysis, _ = _response_parts(response)
+            except GeoWorldClientError as exc:
+                st.session_state["assistant_notice"] = catalog_warning_message(str(exc))
+    if view is None:
+        return
+    st.write(f"**Current view:** {view.selection_summary}")
+    clip_key = f"seismic_clip_{dataset.dataset_id}"
+    clip = float(st.session_state.get(clip_key, 99.0))
+    figure_slot = st.container()
+    horizon = _render_horizon_controls(api, view) if synthetic else None
+    with figure_slot:
+        st.plotly_chart(
+            _horizon_figure(view, horizon, clip) if horizon is not None else _figure(view, clip),
+            width="stretch",
+        )
+    if horizon is not None:
+        _render_horizon_summary(horizon)
+    _render_analysis(analysis)
+    with st.expander("Display settings", expanded=False):
+        st.slider(
+            "Symmetric amplitude clip percentile", 90.0, 100.0, 99.0, .5,
+            help="Display-only. Source samples and metadata are unchanged.", key=clip_key,
+        )
+        st.caption("Display-only clipping; this does not create processed seismic.")
+    with st.expander("Headers and provenance", expanded=False):
+        st.json(dataset.model_dump(mode="json"))
+        st.json(view.provenance)
+        if catalog.warnings:
+            st.json({"catalog_warnings": catalog.warnings})

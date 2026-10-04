@@ -265,10 +265,10 @@ def test_reset_link_opens_password_form_and_submits_token(app, monkeypatch):
     assert any("Password reset." in item.value for item in app.success)
 
 
-def test_saving_is_in_sidebar_not_workflow_and_layout_defaults_to_auto(app):
+def test_saving_is_in_sidebar_and_assistant_position_is_automatic(app):
     app.run(timeout=15)
     assert not app.exception
-    assert app.selectbox(key="display_layout").value == "Auto"
+    assert not any(item.label == "Page layout" for item in app.selectbox)
     assert app.checkbox(key="display_fit_figures").value is True
     assert any("Save page as PDF" in item.proto.body for item in app.sidebar.get("html"))
     assert not app.main.get("html")
@@ -278,11 +278,11 @@ def test_saving_is_in_sidebar_not_workflow_and_layout_defaults_to_auto(app):
     assert any(item.label == "What would you like GeoWorld to do?" for item in app.text_area)
 
 
-def test_layout_choices_keep_results_and_never_submit_jobs(app, monkeypatch):
+def test_display_preferences_keep_results_and_never_submit_jobs(app, monkeypatch):
     monkeypatch.setattr(GeoWorldBackendClient, "submit_job", lambda *_args: pytest.fail("layout must not run science"))
     app.run(timeout=15)
-    for choice in ("One column", "Two columns", "Auto"):
-        app.selectbox(key="display_layout").set_value(choice).run()
+    for size in (18, 20, 22):
+        app.slider(key="display_text_px").set_value(size).run()
         assert not app.exception
         assert app.session_state["last_job_id"] == "job-report"
         assert app.session_state["last_submitted_prompt"] == "Original submitted question."
@@ -337,7 +337,7 @@ def test_configured_nova_and_actual_openai_backup_are_distinct(app, monkeypatch)
     assert any("Primary AI is unavailable; a backup is configured." == item.value for item in app.sidebar.warning)
     assert any(item.value == "Answer generation: OpenAI · gpt-4.1-mini (backup used)" for item in app.main.caption)
     assert all("raw diagnostic" not in item.value for item in app.caption)
-    app.selectbox(key="display_layout").set_value("One column").run()
+    app.slider(key="display_text_px").set_value(20).run()
     assert any("Answer generation: OpenAI" in item.value for item in app.main.caption)
 
 

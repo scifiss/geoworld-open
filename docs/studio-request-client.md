@@ -1,6 +1,9 @@
 # One-request Studio interface
 
-The default Studio page has one natural-language entry. `interpret_studio(prompt)`
+The default Studio page has one persistent GeoWorld Assistant composer beside a
+contextual workspace, with no top-level tool selector. See the
+[interaction flow and screenshots](studio-assistant-interface.md).
+`interpret_studio(prompt)`
 calls authenticated `POST /intent/interpret` and returns a typed `StudioDecision`.
 Public code renders the decision; private service intelligence selects the route.
 Project-scoped callers may pass `project_id`; authorization precedes inference.

@@ -14,7 +14,7 @@ def test_seed_required_tracking_errors_and_section_switch_clear_result():
     assert not app.exception
     assert app.button(key="horizon_track").disabled
     assert any("Synthetic benchmark" in item.value for item in app.markdown)
-    assert app.text_input(key="seismic_chat_prompt").disabled
+    assert not app.text_input
     prefix = "horizon_" + "c" * 24 + "_inline_1212"
     assert app.number_input(key=prefix + "_trace").value is None
     app.number_input(key=prefix + "_trace").set_value(16)
