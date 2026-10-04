@@ -67,12 +67,12 @@ def render_composer(api):
         prefix = "Example: " if context.format == "synthetic" else "Attached: "
         st.caption(prefix + context.display_name)
     with st.container(key="assistant_composer"):
-        with st.form("assistant_message_form"):
-            prompt = st.text_area(
-                "Message GeoWorld", key="assistant_prompt", height=120,
-                placeholder="Ask a question, describe a model, or inspect an attached file…",
-            )
-            sent = st.form_submit_button("Send", type="primary", use_container_width=True)
+        # Keep the draft through unrelated widget reruns before Send is clicked.
+        prompt = st.text_area(
+            "Message GeoWorld", key="assistant_prompt", height=120,
+            placeholder="Ask a question, describe a model, or inspect an attached file…",
+        )
+        sent = st.button("Send", type="primary", use_container_width=True, key="assistant_send")
         with st.expander("Attach", expanded=False):
             uploaded = st.file_uploader("Seismic file (SEG-Y)", type=["sgy", "segy"], key="assistant_attachment")
             if st.button("Attach file", disabled=uploaded is None, key="assistant_attach"):
@@ -107,18 +107,21 @@ def render_composer(api):
         append_message("user", prompt.strip())
         decision = submit_request(api, prompt.strip())
         if decision is not None:
-            if decision.route != "blocked":
-                st.session_state["studio_active_context"] = (
-                    "seismic" if decision.route == "seismic_explorer" else "request"
-                )
+            st.session_state["studio_active_context"] = (
+                "seismic" if decision.route == "seismic_explorer" else "request"
+            )
             if decision.route != "seismic_explorer" or "seismic_unified_request" not in st.session_state:
                 append_message("assistant", decision.message)
         else:
+            st.session_state["studio_active_context"] = "request"
             append_message("assistant", st.session_state["studio_request_error"])
-        st.rerun()
 
 
 def render_assistant_studio(api, render_active, render_manual):
+    st.session_state.setdefault("studio_active_context", "request")
+    st.session_state.setdefault("assistant_history", [])
+    st.session_state.setdefault("assistant_seismic_seen", [])
+    st.session_state.setdefault("assistant_job_seen", [])
     st.markdown("""
         <style>
         .st-key-assistant_workspace_layout > div > [data-testid="stHorizontalBlock"] {align-items: stretch;}

@@ -47,6 +47,7 @@ def completed(app):
 def test_default_is_one_prompt_no_workspace_choices_or_dataset_default(app):
     app.run(timeout=20)
     assert not app.exception
+    assert app.session_state["studio_active_context"] == "request"
     assert [t.label for t in app.text_area] == ["Message GeoWorld"]
     assert not any(r.label in {"Workspace", "Intent"} for r in app.radio)
     assert not any(s.label == "Benchmark dataset" for s in app.selectbox)
@@ -338,6 +339,20 @@ def test_unsupported_request_shows_explanation_without_model_controls(app, monke
     assert app.session_state["last_job_id"] == "a"*32
 
 
+def test_blocked_request_after_seismic_shows_explanation(app, monkeypatch):
+    _seismic_workspace_backend(monkeypatch)
+    monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio", lambda *_: StudioDecision(
+        interpretation=StudioIntent(operation="fwi"), route="blocked",
+        message="This request cannot run with the selected data."))
+    app.session_state["studio_active_context"] = "seismic"
+    app.run(timeout=20)
+    app.text_area(key="assistant_prompt").set_value("Run FWI on this section").run(timeout=20)
+    button(app, "Send").click().run(timeout=20)
+    assert not app.exception
+    assert app.session_state["studio_active_context"] == "request"
+    assert any("This request cannot run with the selected data." in item.value for item in app.warning)
+
+
 def test_question_route_submits_existing_qa_workflow_and_shows_answer(app, monkeypatch):
     prompt = "How does GeoWorld calculate acoustic impedance and normal-incidence reflectivity?"
     submitted = []
@@ -359,3 +374,5 @@ def test_question_route_submits_existing_qa_workflow_and_shows_answer(app, monke
     assert len(submitted) == 1
     assert submitted[0].mode_hint == "ask_question" and submitted[0].prompt == prompt
     assert app.session_state["last_job"].result.answer == "AI = density multiplied by Vp."
+    app.slider(key="display_text_px").set_value(20).run(timeout=20)
+    assert len(submitted) == 1
