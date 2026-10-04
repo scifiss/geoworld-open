@@ -3,7 +3,7 @@ import uuid
 
 from geoworld_open.client.seismic import (
     SeismicAxis, SeismicDatasetCatalog, SeismicDatasetSummary,
-    SeismicExplorerResponse, SeismicExplorerState, SeismicViewData,
+    SeismicConversationTurn, SeismicExplorerResponse, SeismicExplorerState, SeismicViewData,
     SeismicViewRequest,
 )
 from geoworld_open.studio_seismic import render_seismic_explorer
@@ -39,6 +39,9 @@ def view(request):
 
 
 class API:
+    def list_horizon_benchmarks(self):
+        return SeismicDatasetCatalog()
+
     def list_seismic_datasets(self):
         return SeismicDatasetCatalog(datasets=DATASETS)
 
@@ -47,11 +50,21 @@ class API:
 
     def continue_seismic_explorer(self, prompt, *, dataset_id=None, conversation_id=None):
         current = view(SeismicViewRequest(dataset_id=dataset_id))
+        prior = []
+        if conversation_id:
+            prior = [SeismicConversationTurn(
+                user_text="Show the full section", assistant_summary="Line opened.", status="ready",
+            )]
+        turn = SeismicConversationTurn(
+            user_text=prompt, assistant_summary="Applied deterministic section request.", status="ready",
+        )
         state = SeismicExplorerState(
             conversation_id=conversation_id or uuid.uuid4().hex,
             active_dataset_id=dataset_id, current_view=current.request, status="ready",
+            visible_history=[*prior, turn], recent_context=[turn],
         )
         return SeismicExplorerResponse(state=state, view=current)
 
 
-render_seismic_explorer(API())
+if __name__ == "__main__":
+    render_seismic_explorer(API())

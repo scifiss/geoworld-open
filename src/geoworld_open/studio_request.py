@@ -5,6 +5,17 @@ from geoworld_open.client import GeoWorldClientError, JobCreateRequest
 from geoworld_open.studio_llm import execution_model_line, preparation_model_line
 
 
+def seismic_workspace_command(prompt: str) -> str | None:
+    """Return a supported deterministic Explorer command embedded in a routed request."""
+    text = prompt.strip()
+    lower = text.casefold()
+    controls = (
+        "inline", "crossline", "time slice", "depth slice", "trace ",
+        "zoom ", "spectrum", "histogram", "statistics", "amplitude range",
+    )
+    return text if any(control in lower for control in controls) else None
+
+
 def render_build(api, submit, prompt, *, prepare=False, prepare_only=False):
     st.subheader("Prepared model")
     if st.button("Prepare model") or prepare:
@@ -118,6 +129,12 @@ def render_request(api, submit, render_las):
         render_build(api, submit, prompt, prepare=prepare, prepare_only=prepare_only)
     elif decision.route == "las_quicklook":
         render_las(api)
+    elif decision.route == "seismic_explorer":
+        st.session_state["requested_studio_workspace"] = "Seismic Explorer"
+        command = seismic_workspace_command(prompt)
+        if command:
+            st.session_state["seismic_unified_request"] = command
+        st.rerun()
     elif decision.route == "ask_question":
         if prepare_only:
             st.info("Question workflow selected. No answer job submitted because you requested preparation only.")

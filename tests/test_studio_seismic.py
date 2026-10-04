@@ -14,21 +14,47 @@ def test_seismic_explorer_renders_and_switching_dataset_clears_stale_view():
     ).run(timeout=20)
     assert not app.exception
     assert len(app.get("file_uploader")) == 1
+    assert not any(button.label == "Track selected synthetic horizon" for button in app.button)
     assert any(button.label == "Validate upload" for button in app.button)
     assert any("2D RSF" in item.value for item in app.markdown)
-    next(button for button in app.button if button.label == "Open dataset").click().run(timeout=20)
     assert not app.exception
     assert any("Current view" in item.value and "Line A" in item.value for item in app.markdown)
     assert len(app.get("plotly_chart")) == 1
+    assert any("GeoWorld Seismic Chat" in item.value for item in app.markdown)
+    assert any(button.label == "Send / Apply" for button in app.button)
 
     app.selectbox(key="seismic_dataset_id").set_value("b" * 24).run(timeout=20)
     assert not app.exception
-    assert len(app.get("plotly_chart")) == 0
-    assert "seismic_conversation_id" not in app.session_state
-
-    next(button for button in app.button if button.label == "Open dataset").click().run(timeout=20)
-    assert any("Current view" in item.value and "Line B" in item.value for item in app.markdown)
     assert len(app.get("plotly_chart")) == 1
+    assert "seismic_conversation_id" not in app.session_state
+    assert any("Current view" in item.value and "Line B" in item.value for item in app.markdown)
+
+
+def test_deterministic_chat_renders_separated_history_and_keeps_view_on_turn():
+    pytest.importorskip("streamlit")
+    pytest.importorskip("plotly")
+    from streamlit.testing.v1 import AppTest
+
+    app = AppTest.from_file(
+        str(Path(__file__).parents[1] / "tests/fixtures/seismic_explorer_app.py")
+    ).run(timeout=20)
+    app.text_input(key="seismic_chat_prompt").set_value("Show the amplitude statistics").run(timeout=20)
+    next(button for button in app.button if button.label == "Send / Apply").click().run(timeout=20)
+    assert not app.exception
+    assert len(app.get("chat_message")) == 2
+    assert any("Show the amplitude statistics" in item.value for item in app.markdown)
+    assert any("Applied deterministic" in item.value for item in app.markdown)
+    assert len(app.get("plotly_chart")) == 1
+    assert app.session_state["seismic_conversation_id"]
+
+
+def test_workspace_css_has_responsive_stack_and_sticky_chat_composer():
+    from geoworld_open import studio_seismic
+
+    source = inspect.getsource(studio_seismic.render_seismic_explorer)
+    assert "@media (max-width: 900px)" in source
+    assert "min-width: 100%" in source
+    assert "position: sticky" in source
 
 
 def test_display_clip_is_explicitly_non_destructive():

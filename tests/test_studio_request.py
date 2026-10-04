@@ -10,6 +10,8 @@ from geoworld_open.client import GeoWorldBackendClient, GeoWorldClientError
 from geoworld_open.client.models import JobCreateResponse, JobResult, JobStatusResponse
 from geoworld_open.client.marmousi import MarmousiInterpretation, MarmousiSelection
 from geoworld_open.client.studio_request import StudioDecision, StudioIntent
+from geoworld_open.client.seismic import SeismicDatasetCatalog, SeismicViewRequest
+from tests.fixtures.seismic_explorer_app import API as SeismicAPI, DATASETS, view as seismic_view
 from test_studio_marmousi import make_preview
 from test_studio_reference import make_preview as reference_preview
 
@@ -48,6 +50,58 @@ def test_default_is_one_prompt_no_workspace_choices_or_dataset_default(app):
     assert [t.label for t in app.text_area] == ["What would you like GeoWorld to do?"]
     assert not any(r.label in {"Workspace", "Intent"} for r in app.radio)
     assert not any(s.label == "Benchmark dataset" for s in app.selectbox)
+    assert app.radio(key="studio_workspace").options == ["Ask or Build", "Seismic Explorer"]
+
+
+def _seismic_workspace_backend(monkeypatch, turns=None):
+    monkeypatch.setattr(
+        GeoWorldBackendClient, "list_seismic_datasets",
+        lambda _: SeismicDatasetCatalog(datasets=DATASETS),
+    )
+    monkeypatch.setattr(
+        GeoWorldBackendClient, "list_horizon_benchmarks",
+        lambda _: SeismicDatasetCatalog(),
+    )
+    monkeypatch.setattr(
+        GeoWorldBackendClient, "get_seismic_view",
+        lambda _self, request: seismic_view(SeismicViewRequest.model_validate(request)),
+    )
+    if turns is not None:
+        monkeypatch.setattr(
+            GeoWorldBackendClient, "continue_seismic_explorer",
+            lambda _self, prompt, **kwargs: turns.append((prompt, kwargs)) or
+            SeismicAPI().continue_seismic_explorer(prompt, **kwargs),
+        )
+
+
+def test_seismic_explorer_is_direct_normal_studio_workspace(app, monkeypatch):
+    _seismic_workspace_backend(monkeypatch)
+    app.run(timeout=20)
+    app.radio(key="studio_workspace").set_value("Seismic Explorer").run(timeout=20)
+    assert not app.exception
+    assert any("GeoWorld Seismic Chat" in item.value for item in app.markdown)
+    assert len(app.get("plotly_chart")) == 1
+
+
+def test_unified_explicit_inline_request_routes_and_applies_in_explorer(app, monkeypatch):
+    turns = []
+    _seismic_workspace_backend(monkeypatch, turns)
+    monkeypatch.setattr(
+        GeoWorldBackendClient, "interpret_studio",
+        lambda *_: StudioDecision(
+            interpretation=StudioIntent(operation="seismic"),
+            route="seismic_explorer", message="Open Seismic Explorer.",
+        ),
+    )
+    app.run(timeout=20)
+    app.text_area(key="prompt").set_value("show inline 1212 of my seismic").run()
+    button(app, "Interpret request").click().run(timeout=20)
+    assert not app.exception
+    assert app.radio(key="studio_workspace").value == "Seismic Explorer"
+    assert turns == [("show inline 1212 of my seismic", {
+        "dataset_id": DATASETS[0].dataset_id, "conversation_id": None,
+    })]
+    assert len(app.get("chat_message")) == 2
 
 
 def test_hosted_marmousi1_shows_plot_and_only_available_properties(app, monkeypatch):

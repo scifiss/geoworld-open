@@ -171,6 +171,19 @@ class GeoWorldBackendClient:
             self._json_request("GET", "/seismic/datasets")
         )
 
+    def list_horizon_benchmarks(self):
+        from geoworld_open.client.seismic import SeismicDatasetCatalog
+        return SeismicDatasetCatalog.model_validate(
+            self._json_request("GET", "/seismic/horizons/benchmarks")
+        )
+
+    def track_synthetic_horizon(self, request):
+        from geoworld_open.client.horizon import HorizonTrackRequest, HorizonTrackResult
+        validated = HorizonTrackRequest.model_validate(request)
+        return HorizonTrackResult.model_validate(self._json_request(
+            "POST", "/seismic/horizons/track", validated.model_dump(mode="json"),
+        ))
+
     def upload_seismic(self, filename: str, content: UploadSource):
         """Upload one SEG-Y source without exposing or accepting a server path."""
         from geoworld_open.client.seismic import SeismicUploadRecord
