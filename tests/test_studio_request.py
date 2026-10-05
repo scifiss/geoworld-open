@@ -341,7 +341,7 @@ def test_unsupported_request_shows_explanation_without_model_controls(app, monke
 
 def test_blocked_request_after_seismic_shows_explanation(app, monkeypatch):
     _seismic_workspace_backend(monkeypatch)
-    monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio", lambda *_: StudioDecision(
+    monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio", lambda *_, **_context: StudioDecision(
         interpretation=StudioIntent(operation="fwi"), route="blocked",
         message="This request cannot run with the selected data."))
     app.session_state["studio_active_context"] = "seismic"

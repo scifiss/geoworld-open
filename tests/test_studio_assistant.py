@@ -23,7 +23,7 @@ def send(app, text):
 def test_shared_composer_moves_between_question_seismic_and_model_and_keeps_history(app, monkeypatch):
     _seismic_workspace_backend(monkeypatch, [])
     routed = []
-    def route(_self, prompt):
+    def route(_self, prompt, **_context):
         routed.append(prompt)
         operation, selected = {
             "What is impedance?": ("question", "ask_question"),
@@ -57,6 +57,187 @@ def test_shared_composer_moves_between_question_seismic_and_model_and_keeps_hist
     app.run(timeout=20)
     assert app.session_state["assistant_history"] == history
     assert len(routed) == 4
+
+
+def test_exact_model_followups_accumulate_in_session_without_qa(app, monkeypatch):
+    first = (
+        "build a model of sand, shale, carbonate, and sand. the sand is high porous, "
+        "list assumptions. there is a fault in the top 2 layers."
+    )
+    second = "use your best assumptions."
+    previews = []
+
+    def route(_self, prompt, **context):
+        assert context.get("has_pending_build", False) == (prompt == second)
+        return StudioDecision(
+            interpretation=StudioIntent(operation="build", dataset="synthetic"),
+            route="build_model", message="Review the pending model.",
+            continues_build=prompt == second,
+        )
+
+    def preview(_self, **request):
+        previews.append(request)
+        spec = request.get("geospec") or {"geology": {"layers": [
+            {"lithology": name, "porosity": .28 if name == "sand" else None}
+            for name in ("sand", "shale", "carbonate", "sand")
+        ]}, "assumptions": ["Default grid and layer thickness policy"]}
+        return {"valid": False, "geospec": spec, "assumptions": spec["assumptions"],
+                "issues": [{"severity": "error", "message":
+                            "A fault confined to the top two layers is not supported. "
+                            "Should I use a through-going fault or omit the fault?"}]}
+
+    monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio", route)
+    monkeypatch.setattr(GeoWorldBackendClient, "preview_geospec", preview)
+    app.run(timeout=20)
+    send(app, first)
+    send(app, second)
+    pending = app.session_state["studio_pending_build"]
+    assert pending["turns"] == [first, second]
+    assert [layer["lithology"] for layer in pending["geospec"]["geology"]["layers"]] == [
+        "sand", "shale", "carbonate", "sand",
+    ]
+    assert previews[0] == {"prompt": first}
+    assert previews[1] == {"geospec": pending["geospec"],
+                           "follow_up": second, "prior_turns": [first]}
+    assert button(app, "Run model").disabled
+    assert any("through-going fault or omit" in item["content"]
+               for item in app.session_state["assistant_history"] if item["role"] == "assistant")
+
+
+def test_interpretation_failure_keeps_active_seismic_view_and_history(app, monkeypatch):
+    _seismic_workspace_backend(monkeypatch)
+    app.session_state["studio_active_context"] = "seismic"
+    app.run(timeout=20)
+    original = app.session_state["seismic_response"]
+    dataset = app.session_state["seismic_dataset_id"]
+    monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio",
+                        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                            GeoWorldClientError("Provider temporarily unavailable")))
+    send(app, "what is the sample interval?")
+    assert app.session_state["studio_active_context"] == "seismic"
+    assert app.session_state["seismic_dataset_id"] == dataset
+    assert app.session_state["seismic_response"] == original
+    assert len(app.get("plotly_chart")) == 1
+    assert any("Provider temporarily unavailable" in item["content"]
+               for item in app.session_state["assistant_history"] if item["role"] == "assistant")
+
+
+def test_three_turn_limestone_request_keeps_explicit_layer_and_porosity(app, monkeypatch):
+    turns = [
+        "create a model with highly carbon dioxide rich limestone",
+        "make it 3 layers, the limestone layer has porosity of 0.3",
+        "please make reasonable assumptions for the unspecified parameters",
+    ]
+    previews = []
+
+    def route(_self, prompt, **context):
+        assert context.get("has_pending_build", False) == (prompt != turns[0])
+        return StudioDecision(
+            interpretation=StudioIntent(operation="build", dataset="synthetic"),
+            route="build_model", message="Review the pending model.",
+            continues_build=prompt != turns[0],
+        )
+
+    def preview(_self, **request):
+        previews.append(request)
+        spec = request.get("geospec") or {"geology": {"layers": [
+            {"lithology": "limestone", "porosity": None}
+        ]}, "assumptions": ["Existing grid default"]}
+        if request.get("follow_up") == turns[1]:
+            spec = {**spec, "geology": {"layers": [
+                {"lithology": "shale", "porosity": None},
+                {"lithology": "limestone", "porosity": .3},
+                {"lithology": "shale", "porosity": None},
+            ]}}
+        return {"valid": False, "geospec": spec,
+                "issues": [{"severity": "error", "message":
+                            "CO2 substitution applies to sand, not limestone. "
+                            "Use a sand host or omit CO2?"}]}
+
+    monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio", route)
+    monkeypatch.setattr(GeoWorldBackendClient, "preview_geospec", preview)
+    app.run(timeout=20)
+    for turn in turns:
+        send(app, turn)
+    pending = app.session_state["studio_pending_build"]
+    assert pending["turns"] == turns
+    assert [layer["lithology"] for layer in pending["geospec"]["geology"]["layers"]] == [
+        "shale", "limestone", "shale",
+    ]
+    assert pending["geospec"]["geology"]["layers"][1]["porosity"] == .3
+    assert previews[2]["prior_turns"] == turns[:2]
+    assert previews[2]["follow_up"] == turns[2]
+    assert button(app, "Run model").disabled
+
+
+def test_attached_seismic_commands_forward_dataset_context_and_keep_single_chat(app, monkeypatch):
+    turns = []
+    routed = []
+    _seismic_workspace_backend(monkeypatch, turns)
+
+    def route(_self, prompt, **context):
+        routed.append((prompt, context))
+        return StudioDecision(interpretation=StudioIntent(operation="seismic"),
+                              route="seismic_explorer", message="Use active seismic data.")
+
+    monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio", route)
+    app.session_state["studio_active_context"] = "seismic"
+    app.run(timeout=20)
+    commands = [
+        "what are the inline and crossline ranges?",
+        "what kind of data is this?",
+        "what is the sample interval?",
+        "show inline 1212",
+        "show crossline 320",
+        "show the trace at inline 1215, crossline 315",
+    ]
+    for command in commands:
+        send(app, command)
+    assert [entry[0] for entry in routed] == commands
+    assert all(entry[1]["active_seismic_dataset_id"] == DATASETS[0].dataset_id for entry in routed)
+    assert [entry[0] for entry in turns] == commands
+    assert len(app.text_area) == 1
+    assert all(any(message["content"] == command for message in app.session_state["assistant_history"])
+               for command in commands)
+
+
+def test_model_provider_failure_restores_active_seismic_workspace(app, monkeypatch):
+    _seismic_workspace_backend(monkeypatch)
+    monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio", lambda *_args, **_kwargs:
+                        StudioDecision(interpretation=StudioIntent(operation="build"),
+                                       route="build_model", message="Prepare model."))
+    monkeypatch.setattr(GeoWorldBackendClient, "preview_geospec", lambda *_args, **_kwargs:
+                        (_ for _ in ()).throw(GeoWorldClientError("Model provider unavailable")))
+    app.session_state["studio_active_context"] = "seismic"
+    app.run(timeout=20)
+    dataset = app.session_state["seismic_dataset_id"]
+    original = app.session_state["seismic_response"]
+    send(app, "build a model of sand and shale")
+    assert app.session_state["studio_active_context"] == "seismic"
+    assert app.session_state["seismic_dataset_id"] == dataset
+    assert app.session_state["seismic_response"] == original
+    assert len(app.get("plotly_chart")) == 1
+    assert any("Model provider unavailable" in item["content"]
+               for item in app.session_state["assistant_history"] if item["role"] == "assistant")
+
+
+def test_seismic_command_failure_keeps_current_view_and_reports_in_history(app, monkeypatch):
+    _seismic_workspace_backend(monkeypatch)
+    monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio", lambda *_args, **_kwargs:
+                        StudioDecision(interpretation=StudioIntent(operation="seismic"),
+                                       route="seismic_explorer", message="Inspect active data."))
+    monkeypatch.setattr(GeoWorldBackendClient, "continue_seismic_explorer",
+                        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                            GeoWorldClientError("Seismic service temporarily unavailable")))
+    app.session_state["studio_active_context"] = "seismic"
+    app.run(timeout=20)
+    original = app.session_state["seismic_response"]
+    send(app, "show inline 1212")
+    assert app.session_state["studio_active_context"] == "seismic"
+    assert app.session_state["seismic_response"] == original
+    assert len(app.get("plotly_chart")) == 1
+    assert any("Seismic service temporarily unavailable" in item["content"]
+               for item in app.session_state["assistant_history"] if item["role"] == "assistant")
 
 
 def test_benchmarks_are_fetched_only_by_explicit_example_action(app, monkeypatch):
