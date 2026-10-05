@@ -15,7 +15,7 @@ def test_fwi_preflight_preview_and_prepare_only_never_run(monkeypatch,variant):
     monkeypatch.setenv('GEOWORLD_BACKEND_URL','http://127.0.0.1:8100')
     monkeypatch.setenv('GEOWORLD_STUDIO_LOCAL_RTM','1')
     monkeypatch.setattr(GeoWorldBackendClient,'get_llm_health',lambda _: {'reachable':True})
-    monkeypatch.setattr(GeoWorldBackendClient,'interpret_studio',lambda *_:StudioDecision(
+    monkeypatch.setattr(GeoWorldBackendClient,'interpret_studio',lambda *_, **_context:StudioDecision(
         interpretation=StudioIntent(operation='fwi',dataset='marmousi1'),route='bounded_fwi',message='Bounded FWI'))
     monkeypatch.setattr(GeoWorldBackendClient,'preview_fwi',lambda *_a,**_k:FWIPreview(
         selection=FWISelection(reference_id=reference,action='prepare'),preparation_id='a'*32,runnable=False,

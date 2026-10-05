@@ -146,11 +146,11 @@ class GeoWorldBackendClient:
         return CapabilityCatalog.model_validate(payload)
 
     def interpret_studio(self, prompt, project_id=None, *, has_pending_build=False,
-                         active_seismic_dataset_id=None):
+                         active_seismic_dataset_id=None, context=None):
         from geoworld_open.client.studio_request import StudioRequest, StudioDecision
         request = StudioRequest(
             prompt=prompt, project_id=project_id, has_pending_build=has_pending_build,
-            active_seismic_dataset_id=active_seismic_dataset_id,
+            active_seismic_dataset_id=active_seismic_dataset_id, context=context,
         )
         return StudioDecision.model_validate(self._json_request("POST", "/intent/interpret", request.model_dump(mode="json")))
 

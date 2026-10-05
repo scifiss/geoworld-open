@@ -379,3 +379,30 @@ def test_backend_errors_are_sanitized() -> None:
 def test_invalid_backend_url_is_rejected() -> None:
     with pytest.raises(ValueError):
         GeoWorldBackendClient("file:///tmp/private")
+
+
+def test_typed_studio_context_roundtrips_through_existing_interpretation_api():
+    from geoworld_open.client.studio_request import StudioTaskContext, StudioBuildContext
+    from geoworld_open.client.seismic import SeismicViewRequest
+    context = StudioTaskContext(active_task="build", build=StudioBuildContext(
+        geospec={"geology": {"layers": [{"lithology": "sand", "porosity": .3}]}},
+        turns=["build sand"], valid=True), execution_allowed=True,
+        active_seismic_dataset_id="a" * 24, seismic_view=SeismicViewRequest(dataset_id="a" * 24, view_kind="crossline", crossline=320))
+    transport = FakeTransport([(200, {"interpretation": {"operation": "build"},
+        "route": "build_model", "message": "Run reviewed model", "action": "run_prepared_build"})])
+    client = GeoWorldBackendClient("https://example.test", transport=transport)
+    result = client.interpret_studio("run it", context=context)
+    assert result.action == "run_prepared_build"
+    import json
+    sent = json.loads(transport.calls[0][3])
+    assert sent["context"] == context.model_dump(mode="json")
+
+
+def test_studio_context_rejects_inconsistent_view_and_execution_eligibility():
+    from geoworld_open.client.studio_request import StudioTaskContext
+    from geoworld_open.client.seismic import SeismicViewRequest
+    with pytest.raises(ValidationError, match="active dataset"):
+        StudioTaskContext(active_seismic_dataset_id="a" * 24,
+            seismic_view=SeismicViewRequest(dataset_id="b" * 24))
+    with pytest.raises(ValidationError, match="valid prepared build"):
+        StudioTaskContext(execution_allowed=True)

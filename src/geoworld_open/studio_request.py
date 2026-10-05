@@ -21,9 +21,12 @@ def seismic_workspace_command(prompt: str) -> str | None:
 def render_build(api, submit, prompt, *, prepare=False, prepare_only=False):
     st.subheader("Prepared model")
     clicked = st.button("Prepare model")
-    if clicked or prepare:
+    decision = st.session_state.get("studio_decision")
+    if clicked or (prepare and (decision is None or decision.action != "run_prepared_build")):
         st.session_state["studio_build_attempt_error"] = True
-        pending = st.session_state.get("studio_pending_build")
+        from geoworld_open.studio_context import task_context
+        build = task_context().build
+        pending = build.model_dump() if build else None
         decision = st.session_state.get("studio_decision")
         continuing = bool(prepare and pending and decision and decision.continues_build)
         try:
@@ -39,6 +42,8 @@ def render_build(api, submit, prompt, *, prepare=False, prepare_only=False):
             else:
                 response = api.preview_geospec(prompt=prompt)
         except GeoWorldClientError as exc:
+            if previous := st.session_state.get("studio_previous_task_context"):
+                st.session_state["studio_task_context"] = previous
             st.error(str(exc))
             from geoworld_open.studio_assistant import append_message
             append_message("assistant", str(exc))
@@ -55,12 +60,8 @@ def render_build(api, submit, prompt, *, prepare=False, prepare_only=False):
                 response["interpretation_mode"] = pending.get("interpretation_mode") or response.get("interpretation_mode")
             if isinstance(response.get("geospec"), dict):
                 turns = [*pending["turns"], prompt] if continuing else [prompt]
-                st.session_state["studio_pending_build"] = {
-                    "geospec": response["geospec"], "turns": turns,
-                    "confirmation_required": bool(response.get("confirmation_required")),
-                    "degraded": bool(response.get("degraded")),
-                    "interpretation_mode": response.get("interpretation_mode"),
-                }
+                from geoworld_open.studio_context import commit_build
+                commit_build(response, turns)
                 st.session_state["prepared_preview"] = response
                 st.session_state["studio_build_attempt_error"] = False
             elif st.session_state.get("prepared_preview") is None:
@@ -90,7 +91,9 @@ def render_build(api, submit, prompt, *, prepare=False, prepare_only=False):
     if not preview:
         return
     st.caption(preparation_model_line(preview))
-    valid = bool(preview.get("valid") and isinstance(preview.get("geospec"), dict)
+    from geoworld_open.studio_context import task_context
+    current = task_context()
+    valid = bool(current.build and current.build.valid
                  and not st.session_state.get("studio_build_attempt_error"))
     if not valid:
         st.warning("No valid model prepared. Review the interpretation and try again.")
@@ -111,29 +114,46 @@ def render_build(api, submit, prompt, *, prepare=False, prepare_only=False):
         confirmed = st.checkbox("I reviewed this limited deterministic interpretation and want to run it", key="unified_fallback_confirmed")
     if prepare_only:
         st.info("Prepared only, as requested. Submit a new request to run it.")
-    if st.button("Run model", disabled=not valid or not confirmed or prepare_only):
+    from geoworld_open.studio_context import task_context
+    current = task_context()
+    if current.build and not st.session_state.get("studio_build_attempt_error"):
+        st.session_state["studio_task_context"] = current.model_copy(update={
+            "execution_allowed": valid and confirmed,
+        })
+    requested_run = bool(prepare and decision and decision.action == "run_prepared_build")
+    clicked_run = st.button("Run model", disabled=not valid or not confirmed or prepare_only)
+    if (clicked_run or requested_run) and valid and confirmed and not prepare_only:
         try:
-            submit(api, JobCreateRequest(prompt=prompt, mode_hint="build_model", geospec=preview["geospec"],
-                interpretation_mode=preview.get("interpretation_mode") or preview.get("parser_mode"),
-                interpretation_degraded=bool(preview.get("degraded")), degraded_fallback_confirmed=confirmed))
+            submit(api, JobCreateRequest(prompt="\n".join(current.build.turns) if requested_run and current.build else prompt, mode_hint="build_model", geospec=current.build.geospec,
+                interpretation_mode=current.build.interpretation_mode or preview.get("parser_mode"),
+                interpretation_degraded=current.build.degraded, degraded_fallback_confirmed=confirmed))
         except GeoWorldClientError as exc:
             st.error(str(exc))
 
 
 def submit_request(api, prompt):
     """Explicit submission only; the protected backend remains the route authority."""
-    context = {}
-    if st.session_state.get("studio_pending_build"):
+    from geoworld_open.studio_context import task_context
+    working = task_context()
+    context = {"context": working}
+    if working.build:
         context["has_pending_build"] = True
-    if st.session_state.get("seismic_dataset_id"):
-        context["active_seismic_dataset_id"] = st.session_state["seismic_dataset_id"]
+    if working.active_seismic_dataset_id:
+        context["active_seismic_dataset_id"] = working.active_seismic_dataset_id
     try:
         with st.spinner("GeoWorld is understanding your request…"):
             decision = api.interpret_studio(prompt, **context)
     except GeoWorldClientError as exc:
         st.session_state["studio_request_error"] = str(exc)
         return None
-    for key in list(st.session_state):
+    previous_decision = st.session_state.get("studio_decision")
+    if previous_decision and previous_decision.route == "ask_question":
+        previous_decision = st.session_state.get("studio_workspace_decision")
+    preserving = decision.route == "ask_question" or decision.action in {"continue_specialized_workflow", "run_prepared_build"}
+    if decision.route == "ask_question" and st.session_state.get("studio_decision") and st.session_state["studio_decision"].route != "ask_question":
+        st.session_state["studio_workspace_decision"] = st.session_state["studio_decision"]
+        st.session_state["studio_workspace_prompt"] = st.session_state.get("studio_request_prompt", "")
+    for key in ([] if preserving else list(st.session_state)):
         if key.startswith("marmousi_"):
             st.session_state.pop(key, None)
     for key in ("studio_decision", "studio_prepare_attempted", "studio_request_error",
@@ -141,11 +161,26 @@ def submit_request(api, prompt):
                 "marmousi_load_error", "unified_fallback_confirmed", "rtm_model_approved", "fwi_preview", "fwi_prompt",
                 "configurable_fwi_conversation", "configurable_fwi_preview", "configurable_fwi_prompt",
                 "seismic_unified_request"):
-        st.session_state.pop(key, None)
+        if not preserving or key in {"studio_decision", "studio_prepare_attempted", "studio_request_error", "seismic_unified_request"}:
+            st.session_state.pop(key, None)
+    if decision.action == "continue_specialized_workflow":
+        st.session_state["studio_prepare_attempted"] = True
+        prompt = st.session_state.get("studio_workspace_prompt", st.session_state.get("studio_request_prompt", prompt))
+        if previous_decision:
+            decision = previous_decision.model_copy(update={"action": "continue_specialized_workflow"})
+    if decision.action == "run_prepared_build":
+        st.session_state["studio_build_attempt_error"] = False
+    st.session_state["studio_previous_task_context"] = working
+    update = {"last_action": decision.action}
+    if decision.route == "seismic_explorer":
+        update["active_task"] = "seismic"
+    elif decision.route not in {"ask_question", "blocked", "build_model"}:
+        update.update(active_task="specialized", specialized_route=decision.route)
+    st.session_state["studio_task_context"] = working.model_copy(update=update)
     st.session_state["studio_request_prompt"] = prompt
     st.session_state["studio_decision"] = decision
     if decision.route == "seismic_explorer":
-        command = seismic_workspace_command(prompt)
+        command = decision.command or seismic_workspace_command(prompt)
         if command:
             st.session_state["seismic_unified_request"] = command
     return decision
@@ -211,3 +246,17 @@ def render_request(api, submit, render_las):
                 submit(api, JobCreateRequest(prompt=prompt, mode_hint="ask_question"))
             except GeoWorldClientError as exc:
                 st.error(str(exc))
+                from geoworld_open.studio_assistant import append_message
+                append_message("assistant", str(exc))
+
+        from geoworld_open.studio_context import task_context
+        context = task_context()
+        saved = st.session_state.get("studio_workspace_decision")
+        if context.active_task in {"build", "specialized"} and saved:
+            st.session_state["studio_decision"] = saved
+            st.session_state["studio_request_prompt"] = st.session_state.get("studio_workspace_prompt", "")
+            try:
+                render_request(api, submit, render_las)
+            finally:
+                st.session_state["studio_decision"] = decision
+                st.session_state["studio_request_prompt"] = prompt
