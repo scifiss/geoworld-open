@@ -1,5 +1,6 @@
 """PUBLIC_STANDARD: a bounded interpretation, not an executable agent plan."""
 from typing import Annotated, Any, Literal
+from geoworld_open.client.semantic_action import SemanticAction
 
 from pydantic import Field, field_validator, model_validator
 import json
@@ -31,6 +32,7 @@ class StudioBuildContext(ReferenceContract):
 
 class StudioTaskContext(ReferenceContract):
     """Session working state; never authorization, chat memory or scientific truth."""
+    pending_semantic_action: SemanticAction | None = None
     active_task: Literal["none", "build", "seismic", "specialized"] = "none"
     build: StudioBuildContext | None = None
     active_seismic_dataset_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{24}$")
@@ -72,6 +74,8 @@ class StudioDecision(ReferenceContract):
     route: Literal["ask_question", "build_model", "marmousi_model", "deepwave_reference", "model_rtm", "model_forward", "bounded_fwi", "configurable_marmousi_fwi", "las_quicklook", "seismic_explorer", "blocked"]
     message: str
     llm: dict[str, Any] | None = None
+    build_spec: dict[str, Any] | None = None
+    semantic_action: SemanticAction | None = None
     continues_build: bool = False
     action: ContextAction | None = None
     command: str | None = Field(default=None, max_length=8000)

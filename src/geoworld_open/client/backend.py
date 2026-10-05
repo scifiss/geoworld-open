@@ -291,8 +291,11 @@ class GeoWorldBackendClient:
         geospec: dict[str, object] | None = None,
         follow_up: str | None = None,
         prior_turns: list[str] | None = None,
+        semantic_action=None,
     ) -> dict[str, object]:
         payload = {"prompt": prompt, "geospec": geospec}
+        if semantic_action is not None:
+            payload["semantic_action"] = semantic_action.model_dump(mode="json")
         if follow_up is not None:
             payload["follow_up"] = follow_up
         if prior_turns is not None:

@@ -30,7 +30,15 @@ def render_build(api, submit, prompt, *, prepare=False, prepare_only=False):
         decision = st.session_state.get("studio_decision")
         continuing = bool(prepare and pending and decision and decision.continues_build)
         try:
-            if continuing:
+            if decision and decision.build_spec is not None:
+                evidence = {"semantic_action": decision.semantic_action} if decision.semantic_action else {}
+                response = api.preview_geospec(geospec=decision.build_spec, **evidence)
+                response["interpretation_mode"] = (
+                    "deterministic_context" if decision.semantic_action and
+                    decision.semantic_action.kind == "prepare_build" else "pydantic_ai_semantic_action"
+                )
+                response["llm"] = decision.llm
+            elif continuing:
                 response = api.preview_geospec(
                     geospec=pending["geospec"], follow_up=prompt,
                     prior_turns=pending["turns"],
@@ -90,6 +98,8 @@ def render_build(api, submit, prompt, *, prepare=False, prepare_only=False):
     preview = st.session_state.get("prepared_preview")
     if not preview:
         return
+    from geoworld_open.studio_model_preview import render_prepared_geometry
+    render_prepared_geometry(api, preview)
     st.caption(preparation_model_line(preview))
     from geoworld_open.studio_context import task_context
     current = task_context()
@@ -172,6 +182,8 @@ def submit_request(api, prompt):
         st.session_state["studio_build_attempt_error"] = False
     st.session_state["studio_previous_task_context"] = working
     update = {"last_action": decision.action}
+    if decision.action == "clarification_required" and decision.semantic_action is not None:
+        update.update(pending_semantic_action=decision.semantic_action, unresolved_clarification=decision.message, execution_allowed=False)
     if decision.route == "seismic_explorer":
         update["active_task"] = "seismic"
     elif decision.route not in {"ask_question", "blocked", "build_model"}:

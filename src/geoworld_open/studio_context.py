@@ -32,7 +32,7 @@ def commit_build(response, turns):
         degraded=bool(response.get("degraded")), interpretation_mode=response.get("interpretation_mode"),
     )
     st.session_state["studio_task_context"] = previous.model_copy(update={
-        "active_task": "build", "build": build,
+        "active_task": "build", "build": build, "pending_semantic_action": None,
         "unresolved_clarification": errors[0] if errors else None,
         "execution_allowed": build.valid and not build.confirmation_required,
     })
