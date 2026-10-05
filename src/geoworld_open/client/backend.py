@@ -145,9 +145,13 @@ class GeoWorldBackendClient:
         payload = self._json_request("GET", "/capabilities")
         return CapabilityCatalog.model_validate(payload)
 
-    def interpret_studio(self, prompt, project_id=None):
+    def interpret_studio(self, prompt, project_id=None, *, has_pending_build=False,
+                         active_seismic_dataset_id=None):
         from geoworld_open.client.studio_request import StudioRequest, StudioDecision
-        request = StudioRequest(prompt=prompt, project_id=project_id)
+        request = StudioRequest(
+            prompt=prompt, project_id=project_id, has_pending_build=has_pending_build,
+            active_seismic_dataset_id=active_seismic_dataset_id,
+        )
         return StudioDecision.model_validate(self._json_request("POST", "/intent/interpret", request.model_dump(mode="json")))
 
     def continue_experiment(self, prompt, *, conversation_id=None, project_id=None):
@@ -285,11 +289,18 @@ class GeoWorldBackendClient:
         *,
         prompt: str | None = None,
         geospec: dict[str, object] | None = None,
+        follow_up: str | None = None,
+        prior_turns: list[str] | None = None,
     ) -> dict[str, object]:
+        payload = {"prompt": prompt, "geospec": geospec}
+        if follow_up is not None:
+            payload["follow_up"] = follow_up
+        if prior_turns is not None:
+            payload["prior_turns"] = prior_turns
         return self._json_request(
             "POST",
             "/geospec/preview",
-            {"prompt": prompt, "geospec": geospec},
+            payload,
         )
 
     def preview_intent(self, prompt: str, *, has_csv: bool = False) -> dict[str, object]:

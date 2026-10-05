@@ -41,7 +41,7 @@ def view(request):
 
 
 class API:
-    def interpret_studio(self, prompt):
+    def interpret_studio(self, prompt, **_context):
         return StudioDecision(interpretation=StudioIntent(operation="seismic"),
                               route="seismic_explorer", message="Inspect the attached seismic.")
 

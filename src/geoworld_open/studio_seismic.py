@@ -301,7 +301,10 @@ def render_seismic_explorer(api, *, dataset=None) -> None:
                 st.session_state["seismic_conversation_id"] = current.state.conversation_id
                 view, analysis, _ = _response_parts(response)
             except GeoWorldClientError as exc:
-                st.session_state["assistant_notice"] = catalog_warning_message(str(exc))
+                message = catalog_warning_message(str(exc))
+                st.session_state["assistant_notice"] = message
+                from geoworld_open.studio_assistant import append_message
+                append_message("assistant", message)
     if view is None:
         return
     st.write(f"**Current view:** {view.selection_summary}")

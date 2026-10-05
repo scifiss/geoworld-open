@@ -104,6 +104,7 @@ def render_composer(api):
                     st.rerun()
     if sent and prompt.strip():
         st.session_state["manual_tools"] = False
+        st.session_state["studio_previous_context"] = st.session_state.get("studio_active_context", "request")
         append_message("user", prompt.strip())
         decision = submit_request(api, prompt.strip())
         if decision is not None:
@@ -113,12 +114,12 @@ def render_composer(api):
             if decision.route != "seismic_explorer" or "seismic_unified_request" not in st.session_state:
                 append_message("assistant", decision.message)
         else:
-            st.session_state["studio_active_context"] = "request"
             append_message("assistant", st.session_state["studio_request_error"])
 
 
 def render_assistant_studio(api, render_active, render_manual):
     st.session_state.setdefault("studio_active_context", "request")
+    st.session_state.setdefault("studio_pending_build", None)
     st.session_state.setdefault("assistant_history", [])
     st.session_state.setdefault("assistant_seismic_seen", [])
     st.session_state.setdefault("assistant_job_seen", [])
