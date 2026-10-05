@@ -12,7 +12,8 @@ def seismic_workspace_command(prompt: str) -> str | None:
     controls = (
         "inline", "crossline", "time slice", "depth slice", "trace ",
         "zoom ", "spectrum", "histogram", "statistics", "amplitude range",
-        "sample interval", "what kind of data",
+        "sample interval", "sample count", "vertical domain", "what kind of data",
+        "data of the sgy",
     )
     return text if any(control in lower for control in controls) else None
 

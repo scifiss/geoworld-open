@@ -188,9 +188,14 @@ def seismic_catalog(api):
     """Read user/configured data only; retain original diagnostics for provenance."""
     catalog = api.list_seismic_datasets()
     st.session_state["seismic_catalog_warnings"] = list(catalog.warnings)
+    shown = set()
     for warning in catalog.warnings:
         logging.getLogger(__name__).warning("Seismic catalog: %s", warning)
-        st.warning(catalog_warning_message(warning))
+        message = catalog_warning_message(warning)
+        if message not in shown:
+            st.warning(message)
+            shown.add(message)
+    st.session_state["seismic_visible_warnings"] = list(shown)
     return catalog
 
 
@@ -280,7 +285,9 @@ def render_seismic_explorer(api, *, dataset=None) -> None:
             analysis = None
             st.session_state.pop("horizon_result", None)
         except GeoWorldClientError as exc:
-            st.warning(catalog_warning_message(str(exc)))
+            message = catalog_warning_message(str(exc))
+            if message not in st.session_state.get("seismic_visible_warnings", []):
+                st.warning(message)
             view = None
 
     pending = st.session_state.pop("seismic_unified_request", None)
