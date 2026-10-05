@@ -46,6 +46,10 @@ def sync_history():
             append_message("user", prompt)
         append_message("assistant", job.result.answer)
         seen_jobs.append(job_id)
+    elif job_id and job_id not in seen_jobs and job is not None and job.status == "failed":
+        from geoworld_open.studio_runtime import friendly_job_error
+        append_message("assistant", friendly_job_error(job.error))
+        seen_jobs.append(job_id)
 
 
 def attach_seismic(api, uploaded):
@@ -109,8 +113,11 @@ def render_composer(api):
         append_message("user", prompt.strip())
         decision = submit_request(api, prompt.strip())
         if decision is not None:
+            from geoworld_open.studio_context import task_context
+            current = task_context()
             st.session_state["studio_active_context"] = (
-                "seismic" if decision.route == "seismic_explorer" else "request"
+                "seismic" if decision.route == "seismic_explorer" or
+                (decision.route == "ask_question" and current.active_task == "seismic") else "request"
             )
             if decision.route != "seismic_explorer" or "seismic_unified_request" not in st.session_state:
                 append_message("assistant", decision.message)

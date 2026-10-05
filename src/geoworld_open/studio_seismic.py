@@ -205,6 +205,8 @@ def activate_dataset(dataset, *, demo=False):
         for key in ("seismic_response", "seismic_conversation_id", "horizon_result",
                     "horizon_configuration"):
             st.session_state.pop(key, None)
+    from geoworld_open.studio_context import commit_seismic
+    commit_seismic(dataset.dataset_id)
     st.session_state["seismic_dataset_id"] = dataset.dataset_id
     st.session_state["seismic_context_dataset"] = dataset
     st.session_state["seismic_active_dataset"] = dataset.dataset_id
@@ -314,6 +316,8 @@ def render_seismic_explorer(api, *, dataset=None) -> None:
                 append_message("assistant", message)
     if view is None:
         return
+    from geoworld_open.studio_context import commit_seismic
+    commit_seismic(dataset.dataset_id, view=view.request, conversation_id=st.session_state.get("seismic_conversation_id"))
     st.write(f"**Current view:** {view.selection_summary}")
     clip_key = f"seismic_clip_{dataset.dataset_id}"
     clip = float(st.session_state.get(clip_key, 99.0))

@@ -37,3 +37,16 @@ existing job and artifact APIs, without running a solver or calling an LLM. HTML
 downloads do not trigger a Streamlit rerun; a browser/session restart still requires
 sign-in and reopening the backend job. Report contents use the accepted job's request,
 not unsent text currently in the editor.
+
+`StudioRequest.context` optionally carries one `StudioTaskContext`. It holds bounded
+session task state: build GeoSpec/preparation status/provenance, attached dataset
+ID, conversation ID and view request, specialized route, last action, clarification
+and execution eligibility. It contains no sample arrays or chat-based science.
+The legacy pending-build/dataset fields remain available to older SDK callers.
+
+`StudioDecision.action` describes the backend-selected contextual transition, and
+`command` carries a deterministic seismic turn. Preparation and job APIs retain
+validation authority; context never grants data access or execution permission.
+The Studio stores this typed context once and commits validated preparation/view
+responses to it. Existing widget/cache keys are compatibility presentation adapters.
+Conversation remains session-only. Provider failures preserve the committed context.

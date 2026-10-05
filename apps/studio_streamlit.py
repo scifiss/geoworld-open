@@ -126,14 +126,15 @@ def clear_session() -> None:
         st.session_state.pop(key, None)
 
 
+RESULT_STATE_KEYS = (
+    "last_job", "last_job_id", "last_correlation_id", "last_submitted_prompt", "clean_report",
+    "last_preparation_model", "last_result_models", "rtm_replay", "last_result_source",
+    "last_submitted_mode_hint", "last_submitted_experiment_sha256",
+)
+
+
 def clear_last_result() -> None:
-    for key in (
-        "last_job", "last_job_id", "last_correlation_id",
-        "last_submitted_prompt", "clean_report",
-        "last_preparation_model", "last_result_models", "rtm_replay",
-        "last_result_source", "last_submitted_mode_hint",
-        "last_submitted_experiment_sha256",
-    ):
+    for key in RESULT_STATE_KEYS:
         st.session_state.pop(key, None)
 
 
@@ -348,6 +349,7 @@ def poll_job(api: GeoWorldBackendClient, job_id: str, *, actual_stages=False, re
 
 
 def submit_and_wait(api: GeoWorldBackendClient, request: JobCreateRequest) -> None:
+    previous_result = {key: st.session_state[key] for key in RESULT_STATE_KEYS if key in st.session_state}
     created = api.submit_job(request)
     clear_last_result()
     preview = st.session_state.get("prepared_preview")
@@ -370,9 +372,23 @@ def submit_and_wait(api: GeoWorldBackendClient, request: JobCreateRequest) -> No
         st.session_state["last_submitted_experiment_sha256"] = (
             experiment_submission_identity(request.configurable_fwi_experiment)
         )
-    st.session_state["last_job"] = (poll_job(api, created.job_id, actual_stages=True, reference=True)
-                                   if request.mode_hint in {"deepwave_reference", "bounded_fwi", "configurable_marmousi_fwi"} else poll_job(api, created.job_id, actual_stages=True)
-                                   if request.mode_hint in {"model_rtm", "model_forward"} else poll_job(api, created.job_id))
+    try:
+        st.session_state["last_job"] = (poll_job(api, created.job_id, actual_stages=True, reference=True)
+                                       if request.mode_hint in {"deepwave_reference", "bounded_fwi", "configurable_marmousi_fwi"} else poll_job(api, created.job_id, actual_stages=True)
+                                       if request.mode_hint in {"model_rtm", "model_forward"} else poll_job(api, created.job_id))
+    except GeoWorldClientError:
+        if previous_result.get("last_job") is not None:
+            clear_last_result()
+            st.session_state.update(previous_result)
+        raise
+    failed = st.session_state["last_job"]
+    if failed.status == "failed" and previous_result.get("last_job") is not None:
+        from geoworld_open.studio_assistant import append_message
+        append_message("assistant", friendly_job_error(failed.error))
+        st.error(friendly_job_error(failed.error))
+        st.session_state.setdefault("assistant_job_seen", []).append(created.job_id)
+        clear_last_result()
+        st.session_state.update(previous_result)
 
 
 def load_json_artifact(
@@ -1189,6 +1205,10 @@ def render_workspace(api: GeoWorldBackendClient) -> None:
 
     def active(client):
         if st.session_state.get("studio_active_context") == "seismic":
+            decision = st.session_state.get("studio_decision")
+            if decision and decision.route == "ask_question":
+                from geoworld_open.studio_request import render_request
+                render_request(client, submit_and_wait, render_las_workspace)
             from geoworld_open.studio_seismic import render_seismic_explorer
             render_seismic_explorer(client)
         else:

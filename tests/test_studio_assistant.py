@@ -399,3 +399,147 @@ def test_logout_clears_session_conversation_and_attachment_context(app):
     button(app, "Log out").click().run(timeout=20)
     assert "assistant_history" not in app.session_state
     assert "seismic_context_dataset" not in app.session_state
+
+
+@pytest.mark.parametrize("origin,defaults", [
+    ("build shale, sand, shale with CO2 in sand", False),
+    ("build shale, sand, carbonate. sand has CO2, carbonate is very porous", True),
+])
+def test_typed_prepared_context_run_turn_submits_exact_spec_once(app, monkeypatch, origin, defaults):
+    preparations, jobs, contexts = [], [], []
+    spec = {"geology": {"layers": [{"lithology": rock, "porosity": .28 if rock == "carbonate" else None}
+           for rock in ("shale", "sand", "carbonate" if defaults else "shale")]},
+           "petrophysics": {"co2_plume": {"enabled": True}}, "assumptions": ["Documented grid defaults"]}
+    def route(_self, prompt, **kwargs):
+        context = kwargs["context"]
+        contexts.append(context.model_dump())
+        action = "run_prepared_build" if prompt == "run it" else (
+            "prepare_build" if prompt == "use your best assumptions" else "new_task")
+        if action != "new_task":
+            assert context.build.geospec == spec
+            assert context.execution_allowed
+            assert context.active_task == "build"
+        return StudioDecision(interpretation=StudioIntent(operation="build"), route="build_model",
+            action=action, continues_build=action == "prepare_build", message="Review model.")
+    def preview(_self, **kwargs):
+        preparations.append(kwargs)
+        return {"valid": True, "geospec": spec, "assumptions": spec["assumptions"]}
+    monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio", route)
+    monkeypatch.setattr(GeoWorldBackendClient, "preview_geospec", preview)
+    monkeypatch.setattr(GeoWorldBackendClient, "submit_job", lambda _self, req:
+        jobs.append(req) or JobCreateResponse(job_id="d" * 32, status="queued", progress="queued"))
+    monkeypatch.setattr(GeoWorldBackendClient, "get_job", lambda *_:
+        JobStatusResponse(job_id="d" * 32, status="succeeded", progress="done",
+                          result=JobResult(intent="build_model", reason="test", answer="Built prepared model.")))
+    app.run(timeout=20)
+    send(app, origin)
+    assert not jobs
+    assert any("Assumptions before execution" in turn["content"] for turn in app.session_state["assistant_history"])
+    if defaults:
+        send(app, "use your best assumptions")
+        assert preparations[-1]["geospec"] == spec
+        assert preparations[-1]["prior_turns"] == [origin]
+    send(app, "run it")
+    assert len(jobs) == 1
+    assert jobs[0].geospec == spec
+    assert origin in jobs[0].prompt
+    assert len(preparations) == (2 if defaults else 1)
+    app.run(timeout=20)
+    assert len(jobs) == 1
+    assert app.text_area(key="assistant_prompt").value == ""
+
+
+def test_seismic_qa_detour_keeps_dataset_view_and_next_trace_context(app, monkeypatch):
+    turns, received = [], []
+    _seismic_workspace_backend(monkeypatch, turns)
+    def route(_self, prompt, **kwargs):
+        received.append(kwargs["context"].model_dump())
+        question = prompt == "What is acoustic impedance?"
+        return StudioDecision(interpretation=StudioIntent(operation="question" if question else "seismic"),
+            route="ask_question" if question else "seismic_explorer", action="general_question" if question else "seismic_view_command",
+            command=None if question else prompt, message="Accepted.")
+    monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio", route)
+    monkeypatch.setattr(GeoWorldBackendClient, "submit_job", lambda *_:
+        JobCreateResponse(job_id="e" * 32, status="queued", progress="queued"))
+    monkeypatch.setattr(GeoWorldBackendClient, "get_job", lambda *_:
+        JobStatusResponse(job_id="e" * 32, status="succeeded", progress="done",
+                          result=JobResult(intent="qa", reason="test", answer="Density times velocity.")))
+    app.session_state["studio_active_context"] = "seismic"
+    app.run(timeout=20)
+    before = app.session_state["studio_task_context"].model_dump()
+    send(app, "What is acoustic impedance?")
+    assert app.session_state["studio_active_context"] == "seismic"
+    assert len(app.get("plotly_chart")) == 1
+    after = app.session_state["studio_task_context"].model_dump()
+    assert after["active_seismic_dataset_id"] == before["active_seismic_dataset_id"]
+    assert after["seismic_view"] == before["seismic_view"]
+    send(app, "show the trace at inline 1215, crossline 315")
+    assert received[-1]["active_seismic_dataset_id"] == before["active_seismic_dataset_id"]
+    assert received[-1]["seismic_view"] == before["seismic_view"]
+    assert turns[-1][0] == "show the trace at inline 1215, crossline 315"
+
+
+def test_question_detour_keeps_prepared_build_and_no_reprepare(app, monkeypatch):
+    requests = []
+    def route(_self, prompt, **_kwargs):
+        question = prompt.startswith("What")
+        return StudioDecision(interpretation=StudioIntent(operation="question" if question else "build"),
+            route="ask_question" if question else "build_model", action="general_question" if question else "new_task", message="Accepted.")
+    monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio", route)
+    monkeypatch.setattr(GeoWorldBackendClient, "preview_geospec", lambda _self, **kwargs:
+        requests.append(kwargs) or {"valid": True, "geospec": {"geology": {"layers": [{"lithology": "sand"}]}}})
+    monkeypatch.setattr(GeoWorldBackendClient, "submit_job", lambda *_:
+        JobCreateResponse(job_id="f" * 32, status="queued", progress="queued"))
+    monkeypatch.setattr(GeoWorldBackendClient, "get_job", lambda *_:
+        JobStatusResponse(job_id="f" * 32, status="succeeded", progress="done", result=JobResult(intent="qa", reason="test", answer="Answer.")))
+    app.run(timeout=20)
+    send(app, "build sand")
+    before = app.session_state["studio_task_context"].build.model_dump()
+    send(app, "What is acoustic impedance?")
+    assert app.session_state["studio_task_context"].build.model_dump() == before
+    assert any(item.value == "Prepared model" for item in app.subheader)
+    assert len(requests) == 1
+    app.run(timeout=20)
+    assert len(requests) == 1
+
+
+def test_qa_provider_job_failure_keeps_active_data_and_reports_error_once(app, monkeypatch):
+    _seismic_workspace_backend(monkeypatch)
+    monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio", lambda *_args, **_kwargs:
+        StudioDecision(interpretation=StudioIntent(operation="question"), route="ask_question", action="general_question", message="Answer question."))
+    monkeypatch.setattr(GeoWorldBackendClient, "submit_job", lambda *_:
+        JobCreateResponse(job_id="b" * 32, status="queued", progress="queued"))
+    monkeypatch.setattr(GeoWorldBackendClient, "get_job", lambda *_:
+        JobStatusResponse(job_id="b" * 32, status="failed", progress="failed", error="Provider unavailable; retry later."))
+    app.session_state["studio_active_context"] = "seismic"
+    app.run(timeout=20)
+    before = app.session_state["studio_task_context"].model_dump()
+    send(app, "What is acoustic impedance?")
+    after = app.session_state["studio_task_context"].model_dump()
+    assert after["active_seismic_dataset_id"] == before["active_seismic_dataset_id"]
+    assert after["seismic_view"] == before["seismic_view"]
+    assert len(app.get("plotly_chart")) == 1
+    history = list(app.session_state["assistant_history"])
+    assert sum("Provider unavailable" in item["content"] for item in history) == 1
+    app.run(timeout=20)
+    assert app.session_state["assistant_history"] == history
+
+
+def test_failed_question_job_preserves_previous_model_result(app, monkeypatch):
+    from test_studio_request import completed
+    completed(app)
+    previous = app.session_state["last_job"]
+    previous_id = app.session_state["last_job_id"]
+    monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio", lambda *_args, **_kwargs:
+        StudioDecision(interpretation=StudioIntent(operation="question"), route="ask_question", message="Answer question."))
+    monkeypatch.setattr(GeoWorldBackendClient, "submit_job", lambda *_:
+        JobCreateResponse(job_id="c" * 32, status="queued", progress="queued"))
+    monkeypatch.setattr(GeoWorldBackendClient, "get_job", lambda *_:
+        JobStatusResponse(job_id="c" * 32, status="failed", progress="failed", error="Provider unavailable; retry later."))
+    app.run(timeout=20)
+    send(app, "What is acoustic impedance?")
+    assert app.session_state["last_job_id"] == previous_id
+    assert app.session_state["last_job"] == previous
+    assert sum("Provider unavailable" in item["content"] for item in app.session_state["assistant_history"]) == 1
+    app.run(timeout=20)
+    assert app.session_state["last_job_id"] == previous_id

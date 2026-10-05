@@ -91,7 +91,7 @@ def test_unified_explicit_inline_request_routes_and_applies_in_explorer(app, mon
     _seismic_workspace_backend(monkeypatch, turns)
     monkeypatch.setattr(
         GeoWorldBackendClient, "interpret_studio",
-        lambda *_: StudioDecision(
+        lambda *_, **_context: StudioDecision(
             interpretation=StudioIntent(operation="seismic"),
             route="seismic_explorer", message="Open Seismic Explorer.",
         ),
@@ -110,7 +110,7 @@ def test_unified_explicit_inline_request_routes_and_applies_in_explorer(app, mon
 def test_hosted_marmousi1_shows_plot_and_only_available_properties(app, monkeypatch):
     monkeypatch.setenv("GEOWORLD_BACKEND_URL", "https://backend.example.test")
     monkeypatch.delenv("GEOWORLD_STUDIO_LOCAL_RTM", raising=False)
-    monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio", lambda _self, prompt:
+    monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio", lambda _self, prompt, **_context:
         StudioDecision(interpretation=StudioIntent(operation="preview", dataset="marmousi1"),
             route="marmousi_model", message="Preview Marmousi 1",
             llm={"provider": "bedrock", "model": "test-nova", "success": True}))
@@ -134,7 +134,7 @@ def test_hosted_marmousi1_shows_plot_and_only_available_properties(app, monkeypa
 
 def test_marmousi2_interpretation_drives_preview_and_rerun_is_free(app, monkeypatch):
     calls = []
-    def route(_self, prompt):
+    def route(_self, prompt, **_context):
         calls.append(("route", prompt))
         return StudioDecision(interpretation=StudioIntent(operation="preview", dataset="marmousi2"),
             route="marmousi_model", message="Preview Marmousi 2", llm={"provider": "bedrock", "model": "test-nova", "success": True})
@@ -162,7 +162,7 @@ def test_marmousi2_interpretation_drives_preview_and_rerun_is_free(app, monkeypa
 def test_failed_interpretation_can_retry_to_valid_without_stale_model(app, monkeypatch):
     attempts = []
 
-    def route(_self, prompt):
+    def route(_self, prompt, **_context):
         attempts.append(prompt)
         if len(attempts) == 1:
             raise GeoWorldClientError("temporary interpretation failure")
@@ -199,7 +199,7 @@ def test_failed_interpretation_can_retry_to_valid_without_stale_model(app, monke
 def test_new_preview_replaces_main_result_and_keeps_previous_answer_in_history(app, monkeypatch):
     completed(app)
 
-    def route(_self, prompt):
+    def route(_self, prompt, **_context):
         return StudioDecision(
             interpretation=StudioIntent(operation="preview", dataset="marmousi2"),
             route="marmousi_model",
@@ -253,7 +253,7 @@ def test_reference_figures_are_labeled_as_input_processing_and_output(app):
 def test_export_keeps_reference_and_does_not_reinterpret_or_submit(app, monkeypatch):
     completed(app)
     calls = []
-    def route(*_):
+    def route(*_, **_context):
         calls.append("route")
         return StudioDecision(interpretation=StudioIntent(operation="rtm", dataset="marmousi1", prepare_only=True),
             route="deepwave_reference", message="Prepare reference")
@@ -328,7 +328,7 @@ def test_rerun_reconnects_completed_job_without_resubmission(app, monkeypatch):
 
 
 def test_unsupported_request_shows_explanation_without_model_controls(app, monkeypatch):
-    monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio", lambda *_: StudioDecision(
+    monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio", lambda *_, **_context: StudioDecision(
         interpretation=StudioIntent(operation="fwi", dataset="marmousi1"), route="blocked", message="FWI is not implemented."))
     completed(app)
     app.run(timeout=20)
@@ -356,7 +356,7 @@ def test_blocked_request_after_seismic_shows_explanation(app, monkeypatch):
 def test_question_route_submits_existing_qa_workflow_and_shows_answer(app, monkeypatch):
     prompt = "How does GeoWorld calculate acoustic impedance and normal-incidence reflectivity?"
     submitted = []
-    monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio", lambda *_: StudioDecision(
+    monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio", lambda *_, **_context: StudioDecision(
         interpretation=StudioIntent(operation="question"), route="ask_question",
         message="Answer your question using the existing knowledge/Q&A workflow.",
         llm={"provider": "bedrock", "model": "test-nova", "success": True}))
