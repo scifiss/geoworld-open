@@ -20,6 +20,37 @@ def send(app, text):
     assert [item.label for item in app.text_area] == ["Message GeoWorld"]
 
 
+def test_send_clears_composer_only_after_acceptance_and_preserves_unsent_draft(app, monkeypatch):
+    _seismic_workspace_backend(monkeypatch)
+    monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio", lambda *_args, **_kwargs:
+                        StudioDecision(interpretation=StudioIntent(operation="seismic"),
+                                       route="seismic_explorer", message="Inspect active data."))
+    app.session_state["studio_active_context"] = "seismic"
+    app.run(timeout=20)
+    prompt = "Show the amplitude statistics"
+    app.text_area(key="assistant_prompt").set_value(prompt).run(timeout=20)
+    app.slider(key=f"seismic_clip_{DATASETS[0].dataset_id}").set_value(97.0).run(timeout=20)
+    assert app.text_area(key="assistant_prompt").value == prompt
+    button(app, "Send").click().run(timeout=20)
+    assert not app.exception
+    assert any(item == {"role": "user", "content": prompt}
+               for item in app.session_state["assistant_history"])
+    assert app.text_area(key="assistant_prompt").value == ""
+    assert app.session_state["assistant_prompt"] == ""
+
+
+def test_failed_interpretation_preserves_composer_draft(app, monkeypatch):
+    monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio", lambda *_args, **_kwargs:
+                        (_ for _ in ()).throw(GeoWorldClientError("Provider unavailable")))
+    app.run(timeout=20)
+    prompt = "Build a model of shale and sand"
+    app.text_area(key="assistant_prompt").set_value(prompt).run(timeout=20)
+    button(app, "Send").click().run(timeout=20)
+    assert app.text_area(key="assistant_prompt").value == prompt
+    assert any("Provider unavailable" in item["content"]
+               for item in app.session_state["assistant_history"] if item["role"] == "assistant")
+
+
 def test_shared_composer_moves_between_question_seismic_and_model_and_keeps_history(app, monkeypatch):
     _seismic_workspace_backend(monkeypatch, [])
     routed = []
@@ -170,6 +201,50 @@ def test_three_turn_limestone_request_keeps_explicit_layer_and_porosity(app, mon
     assert button(app, "Run model").disabled
 
 
+def test_sand_co2_and_porous_carbonate_followups_keep_pending_spec(app, monkeypatch):
+    turns = [
+        "build a model of 3 layers, shale, sand, and carbonate. sand has CO2, and carbonate is very porous",
+        "yes, use sand as the CO2 host and keep carbonate without CO2",
+        "use your best assumptions",
+    ]
+    requests = []
+    spec = {"geology": {"layers": [
+        {"lithology": "shale", "porosity": None},
+        {"lithology": "sand", "porosity": None},
+        {"lithology": "carbonate", "porosity": .28},
+    ]}, "petrophysics": {"co2_plume": {"enabled": True}},
+        "assumptions": ["CO2 host is sand", "Very porous carbonate uses 0.28"]}
+
+    def route(_self, prompt, **context):
+        continuing = prompt != turns[0]
+        assert context.get("has_pending_build", False) == continuing
+        return StudioDecision(
+            interpretation=StudioIntent(operation="build", dataset="synthetic"),
+            route="build_model", message="Review model.", continues_build=continuing,
+        )
+
+    def preview(_self, **request):
+        requests.append(request)
+        return {"valid": True, "geospec": request.get("geospec") or spec,
+                "assumptions": spec["assumptions"], "issues": []}
+
+    monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio", route)
+    monkeypatch.setattr(GeoWorldBackendClient, "preview_geospec", preview)
+    app.run(timeout=20)
+    for turn in turns:
+        send(app, turn)
+        assert app.text_area(key="assistant_prompt").value == ""
+    pending = app.session_state["studio_pending_build"]
+    assert pending["turns"] == turns
+    assert pending["geospec"]["geology"]["layers"][2] == {
+        "lithology": "carbonate", "porosity": .28,
+    }
+    assert pending["geospec"]["petrophysics"]["co2_plume"]["enabled"]
+    assert requests[1]["prior_turns"] == turns[:1]
+    assert requests[2]["prior_turns"] == turns[:2]
+    assert not any(request.get("prompt") in turns[1:] for request in requests)
+
+
 def test_attached_seismic_commands_forward_dataset_context_and_keep_single_chat(app, monkeypatch):
     turns = []
     routed = []
@@ -190,6 +265,10 @@ def test_attached_seismic_commands_forward_dataset_context_and_keep_single_chat(
         "show inline 1212",
         "show crossline 320",
         "show the trace at inline 1215, crossline 315",
+        "what's the data of the sgy? what's the inline and crossline ranges?",
+        "what kind of data is this and what are its inline/crossline ranges?",
+        "what's the inline and outline ranges?",
+        "what is the vertical domain and sample count?",
     ]
     for command in commands:
         send(app, command)
@@ -297,17 +376,20 @@ def test_failed_attachment_keeps_existing_context(monkeypatch):
 
 def test_missing_uploaded_file_is_actionable_and_raw_condition_is_retained(app, monkeypatch, caplog):
     warning = "lost.sgy: uploaded dataset is unavailable or failed revalidation."
-    monkeypatch.setattr(GeoWorldBackendClient, "list_seismic_datasets", lambda *_: SeismicDatasetCatalog(warnings=[warning]))
+    monkeypatch.setattr(GeoWorldBackendClient, "list_seismic_datasets", lambda *_: SeismicDatasetCatalog(warnings=[warning, warning]))
     app.session_state["studio_active_context"] = "seismic"
     app.session_state["seismic_dataset_id"] = "d" * 24
     app.run(timeout=20)
     assert not app.exception
-    assert any("Reattach it to continue" in item.value for item in app.warning)
+    assert sum("Reattach it to continue" in item.value for item in app.warning) == 1
     assert not any("failed revalidation" in item.value for item in app.warning)
-    assert app.session_state["seismic_catalog_warnings"] == [warning]
+    assert app.session_state["seismic_catalog_warnings"] == [warning, warning]
     assert warning in caplog.text
     assert len(app.get("plotly_chart")) == 0
     assert len(app.get("file_uploader")) == 1
+    assert button(app, "Upload and attach").disabled
+    assert any("Choose a SEG-Y file, then click Upload and attach" in item.value
+               for item in app.caption)
 
 
 def test_logout_clears_session_conversation_and_attachment_context(app):

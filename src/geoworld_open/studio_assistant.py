@@ -75,7 +75,8 @@ def render_composer(api):
         sent = st.button("Send", type="primary", use_container_width=True, key="assistant_send")
         with st.expander("Attach", expanded=False):
             uploaded = st.file_uploader("Seismic file (SEG-Y)", type=["sgy", "segy"], key="assistant_attachment")
-            if st.button("Attach file", disabled=uploaded is None, key="assistant_attach"):
+            st.caption("Choose a SEG-Y file, then click Upload and attach to validate and use it.")
+            if st.button("Upload and attach", disabled=uploaded is None, key="assistant_attach"):
                 try:
                     attach_seismic(api, uploaded)
                     st.rerun()
@@ -113,11 +114,17 @@ def render_composer(api):
             )
             if decision.route != "seismic_explorer" or "seismic_unified_request" not in st.session_state:
                 append_message("assistant", decision.message)
+            # Widget state is cleared before the next widget is instantiated.
+            # Clearing the live text_area key here would raise in Streamlit 1.65.
+            st.session_state["assistant_clear_composer"] = True
+            st.rerun()
         else:
             append_message("assistant", st.session_state["studio_request_error"])
 
 
 def render_assistant_studio(api, render_active, render_manual):
+    if st.session_state.pop("assistant_clear_composer", False):
+        st.session_state["assistant_prompt"] = ""
     st.session_state.setdefault("studio_active_context", "request")
     st.session_state.setdefault("studio_pending_build", None)
     st.session_state.setdefault("assistant_history", [])
