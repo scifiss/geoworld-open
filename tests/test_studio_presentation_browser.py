@@ -55,7 +55,11 @@ def test_html_export_download_and_unified_view_preserve_result(studio_server, tm
         page.get_by_role("button", name="Send", exact=True).wait_for()
         # Streamlit briefly retains stale elements until the rerun completes.
         page.get_by_role("button", name="Determine route", exact=True).wait_for(state="hidden")
-        assert page.get_by_text("Offline display test — no model has been run.", exact=True).is_visible()
+        # The same result also appears in the unified Assistant history.
+        # Assert the retained workspace result, not an ambiguous global text match.
+        assert page.get_by_test_id("stTabs").get_by_text(
+            "Offline display test — no model has been run.", exact=True,
+        ).is_visible()
         assert not page.get_by_text("Workspace", exact=True).is_visible()
         page.screenshot(path=str(tmp_path / "unified-studio-export.png"), full_page=True)
         browser.close()

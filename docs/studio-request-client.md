@@ -50,3 +50,19 @@ validation authority; context never grants data access or execution permission.
 The Studio stores this typed context once and commits validated preparation/view
 responses to it. Existing widget/cache keys are compatibility presentation adapters.
 Conversation remains session-only. Provider failures preserve the committed context.
+
+Typed conversational modeling adds a discriminated `SemanticAction` contract to
+`StudioDecision`, together with a proposed `build_spec`. The normal Studio validates
+that specification through `/geospec/preview`, sending its action as fidelity evidence
+instead of parsing the sentence again. PydanticAI and scientific policy stay private.
+`StudioTaskContext.pending_semantic_action` retains a bounded unresolved proposal.
+
+A valid preview may include `model_preview`: bounded layer geometry, baseline values,
+per-value user/default/derived sources and CO2/fault state. The frontend plots it and
+provides fixed-row porosity/thickness edits; Apply validates over HTTP. Run uses the
+current reviewed GeoSpec. The prepared geometry excludes localized CO2/damage physics
+until numerical execution. No mouse geometry editing is included.
+
+Browser evidence from the offline HTTP fixture and production UI:
+[wide layout](assets/model-preview-wide.png), [narrow layout](assets/model-preview-narrow.png).
+Fixture values are UI evidence, not a calibrated scientific result.

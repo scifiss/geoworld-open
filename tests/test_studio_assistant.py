@@ -543,3 +543,48 @@ def test_failed_question_job_preserves_previous_model_result(app, monkeypatch):
     assert sum("Provider unavailable" in item["content"] for item in app.session_state["assistant_history"]) == 1
     app.run(timeout=20)
     assert app.session_state["last_job_id"] == previous_id
+
+
+def test_typed_build_immediate_preview_edit_and_exact_run(app, monkeypatch):
+    from copy import deepcopy
+    spec = {'geology': {'layers': [{'lithology': 'shale'}, {'lithology': 'sand', 'porosity': .2}, {'lithology': 'carbonate', 'porosity': .3}, {'lithology': 'shale'}]}}
+    previews, jobs = [], []
+    def interpret(_self,prompt,**kwargs):
+        if prompt=='run it':
+            assert kwargs['context'].build.geospec['geology']['layers'][2]['porosity']==.25
+            return StudioDecision(interpretation=StudioIntent(operation='build'), route='build_model',action='run_prepared_build',message='Run reviewed model.')
+        changed=deepcopy(spec)
+        if prompt.startswith('change'):
+            changed['geology']['layers'][2]['porosity']=.25
+        return StudioDecision(interpretation=StudioIntent(operation='build'),route='build_model',
+            build_spec=changed,continues_build=prompt.startswith('change'), action='patch_build' if prompt.startswith('change') else 'new_task',message='Review.')
+    def preview(_self,**kwargs):
+        assert set(kwargs)=={'geospec'}
+        payload=kwargs['geospec'];previews.append(deepcopy(payload))
+        rows=[{'index':index,'lithology':layer['lithology'],'thickness_m':200.,'porosity':layer.get('porosity',.08),
+               'vp':3000.,'vs':1500.,'density':2300.,'sources':{'lithology':'user','porosity':'user' if layer.get('porosity') else 'default','vp':'derived','vs':'derived','density':'derived','thickness_m':'default'}} for index,layer in enumerate(payload['geology']['layers'])]
+        return {'valid':True,'geospec':payload,'assumptions':['Documented policy'], 'model_preview':{
+            'layers':rows,'x_m':[0,100],'z_m':[0,200,400,600],'layer_indices':[[1,1],[2,2],[3,3],[4,4]],
+            'co2_enabled':False,'fault_count':0,'note':'Prepared geometry; before Run.'}}
+    monkeypatch.setattr(GeoWorldBackendClient,'interpret_studio',interpret)
+    monkeypatch.setattr(GeoWorldBackendClient,'preview_geospec',preview)
+    monkeypatch.setattr(GeoWorldBackendClient,'submit_job',lambda _self,request:jobs.append(request) or JobCreateResponse(job_id='a'*32,status='queued',progress='queued'))
+    monkeypatch.setattr(GeoWorldBackendClient,'get_job',lambda *_:JobStatusResponse(job_id='a'*32,status='succeeded',progress='done',result=JobResult(intent='build_model',reason='test',answer='Built exact reviewed model.')))
+    app.run(timeout=20)
+    send(app,'Build a formation with shale, sand, carbonate, and shale layers. Sand has porosity of 0.2, and carbonate 0.3.')
+    assert len(app.get('plotly_chart'))==1 and len(app.dataframe)==2
+    assert not jobs
+    send(app,'change carbonate porosity to 0.25')
+    assert len(app.get('plotly_chart'))==1
+    assert app.session_state['studio_task_context'].build.geospec['geology']['layers'][2]['porosity']==.25
+    import hashlib,json
+    current=app.session_state['studio_task_context'].build.geospec
+    revision=hashlib.sha256(json.dumps(current,sort_keys=True).encode()).hexdigest()[:12]
+    app.session_state['model_layer_editor_'+revision]={'edited_rows':{1:{'porosity':.22}},'added_rows':[],'deleted_rows':[]}
+    button(app,'Apply layer edits').click().run(timeout=20)
+    assert not app.exception
+    assert app.session_state['studio_task_context'].build.geospec['geology']['layers'][1]['porosity']==.22
+    send(app,'run it')
+    assert len(jobs)==1 and jobs[0].geospec==previews[-1]
+    app.run(timeout=20)
+    assert len(jobs)==1 and len(previews)==3
