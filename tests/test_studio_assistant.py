@@ -9,8 +9,11 @@ from tests.fixtures.seismic_explorer_app import DATASETS
 from tests.fixtures.horizon_explorer_app import API as HorizonAPI
 from geoworld_open.client import GeoWorldBackendClient, GeoWorldClientError
 from geoworld_open.client.models import JobCreateResponse, JobResult, JobStatusResponse
+from geoworld_open.client.models import ArtifactInfo
+from geoworld_open.client.semantic_action import NewBuild, PatchBuild, RequestedLayer, LayerEdit
 from geoworld_open.client.seismic import SeismicDatasetCatalog
 from geoworld_open.client.studio_request import StudioDecision, StudioIntent
+from geoworld_open.studio_request import small_model_can_run
 
 
 def send(app, text):
@@ -18,6 +21,86 @@ def send(app, text):
     button(app, "Send").click().run(timeout=20)
     assert not app.exception
     assert [item.label for item in app.text_area] == ["Message GeoWorld"]
+
+
+def test_auto_run_gate_preserves_review_and_resource_limits():
+    preview = {"valid": True, "geospec": {"grid": {"dimension": "2d", "nx": 300, "nz": 160},
+               "geology": {"layers": [{"lithology": "shale"}, {"lithology": "sand"}]}}}
+    assert small_model_can_run(preview)
+    assert not small_model_can_run(preview, prepare_only=True)
+    for key in ("degraded", "confirmation_required"):
+        assert not small_model_can_run({**preview, key: True})
+    assert not small_model_can_run({**preview, "valid": False})
+    oversized = {**preview, "geospec": {**preview["geospec"],
+                 "grid": {"dimension": "2d", "nx": 1000, "nz": 600}}}
+    assert not small_model_can_run(oversized)
+
+
+@pytest.mark.parametrize("prompt,rocks,porosities,co2", [
+    ("build shale sand carbonate, co2 in sand carbonate very porous",
+     ["shale", "sand", "carbonate"], [None, None, .28], True),
+    ("build shale sand carbonate shale. sand phi .2 carbonate .3",
+     ["shale", "sand", "carbonate", "shale"], [None, .2, .3, None], False),
+])
+def test_one_message_model_runs_once_and_shows_result_before_edit(app, monkeypatch, prompt, rocks, porosities, co2):
+    from copy import deepcopy
+    from PIL import Image
+    spec = {"schema_version": "2.0", "grid": {"dimension": "2d", "nx": 300, "nz": 160},
+            "geology": {"layers": [{"lithology": rock, "porosity": phi}
+                                     for rock, phi in zip(rocks, porosities)]},
+            "petrophysics": {"co2_plume": {"enabled": co2, "saturation": .65}}}
+    action = NewBuild(layers=[RequestedLayer(lithology=rock,
+                              porosity=None if co2 and rock == "carbonate" else phi,
+                              porosity_policy="high" if co2 and rock == "carbonate" else None)
+                              for rock, phi in zip(rocks, porosities)],
+                      co2_host_index=1 if co2 else None)
+    jobs, previews = [], []
+    def interpret(_self, text, **_context):
+        editing = text.startswith("change carbonate")
+        if editing:
+            updated = deepcopy(_context["context"].build.geospec)
+            updated["geology"]["layers"][2]["porosity"] = .25
+            turn_action = PatchBuild(edits=[LayerEdit(operation="porosity", layer_index=2, value=.25)])
+        else:
+            updated, turn_action = spec, action
+        return StudioDecision(interpretation=StudioIntent(operation="build", dataset="synthetic"),
+            route="build_model", action="patch_build" if editing else "new_task",
+            semantic_action=turn_action, build_spec=updated, continues_build=editing,
+            message="Review and run validated model.")
+    def preview(_self, **request):
+        previews.append(request)
+        return {"valid": True, "geospec": request["geospec"], "assumptions": ["Deterministic synthetic policy"],
+                "model_preview": None}
+    png = BytesIO()
+    Image.new("RGB", (6, 6), "white").save(png, format="PNG")
+    monkeypatch.setattr(GeoWorldBackendClient, "interpret_studio", interpret)
+    monkeypatch.setattr(GeoWorldBackendClient, "preview_geospec", preview)
+    monkeypatch.setattr(GeoWorldBackendClient, "submit_job", lambda _self, request:
+        jobs.append(request) or JobCreateResponse(job_id=f"{len(jobs):032x}", status="queued", progress="queued"))
+    monkeypatch.setattr(GeoWorldBackendClient, "get_job", lambda _self, job_id:
+        JobStatusResponse(job_id=job_id, status="succeeded", progress="done", result=JobResult(
+            intent="scenario_generation", reason="test", answer="Scientific output ready.",
+            geospec=jobs[-1].geospec, artifacts=[ArtifactInfo(name="run/summary.png", kind="image", media_type="image/png")],
+        )))
+    monkeypatch.setattr(GeoWorldBackendClient, "get_artifact", lambda *_: png.getvalue())
+    monkeypatch.setattr(GeoWorldBackendClient, "get_export", lambda *_: b"report")
+    app.run(timeout=20)
+    send(app, prompt)
+    assert len(previews) == len(jobs) == 1
+    assert jobs[0].geospec == spec
+    assert app.get("image")
+    assert any(item.label == "Edit model" for item in app.expander)
+    assert not any("Assumptions before execution" in item["content"]
+                   for item in app.session_state["assistant_history"])
+    assert sum("Results ready" in item["content"] for item in app.session_state["assistant_history"]) == 1
+    app.run(timeout=20)
+    assert len(previews) == len(jobs) == 1
+    send(app, "change carbonate porosity to 0.25")
+    assert len(previews) == len(jobs) == 2
+    assert jobs[-1].geospec["geology"]["layers"][2]["porosity"] == .25
+    assert jobs[-1].geospec["geology"]["layers"][1]["porosity"] == spec["geology"]["layers"][1]["porosity"]
+    app.run(timeout=20)
+    assert len(previews) == len(jobs) == 2
 
 
 def test_send_clears_composer_only_after_acceptance_and_preserves_unsent_draft(app, monkeypatch):
@@ -434,7 +517,7 @@ def test_typed_prepared_context_run_turn_submits_exact_spec_once(app, monkeypatc
     app.run(timeout=20)
     send(app, origin)
     assert not jobs
-    assert any("Assumptions before execution" in turn["content"] for turn in app.session_state["assistant_history"])
+    assert not any("Assumptions before execution" in turn["content"] for turn in app.session_state["assistant_history"])
     if defaults:
         send(app, "use your best assumptions")
         assert preparations[-1]["geospec"] == spec

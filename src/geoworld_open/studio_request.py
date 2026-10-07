@@ -5,6 +5,19 @@ from geoworld_open.client import GeoWorldClientError, JobCreateRequest
 from geoworld_open.studio_llm import execution_model_line, preparation_model_line
 
 
+def small_model_can_run(preview, *, prepare_only=False):
+    """UI convenience gate; the backend still validates and limits the job."""
+    if prepare_only or not preview.get("valid") or preview.get("confirmation_required") or preview.get("degraded"):
+        return False
+    spec = preview.get("geospec") or {}
+    grid = spec.get("grid") or {}
+    layers = (spec.get("geology") or {}).get("layers") or []
+    nx, nz = grid.get("nx"), grid.get("nz")
+    return (grid.get("dimension") == "2d" and type(nx) is int and type(nz) is int
+            and nx <= 400 and nz <= 240 and nx * nz <= 100_000
+            and 1 <= len(layers) <= 6)
+
+
 def seismic_workspace_command(prompt: str) -> str | None:
     """Return a supported deterministic Explorer command embedded in a routed request."""
     text = prompt.strip()
@@ -86,15 +99,10 @@ def render_build(api, submit, prompt, *, prepare=False, prepare_only=False):
                         st.session_state["assistant_notice"] = errors[0]
                         st.rerun()
             else:
-                assumptions = list(dict.fromkeys(
-                    response.get("assumptions") or (response.get("geospec") or {}).get("assumptions") or []
-                ))
-                summary = "Model prepared for review."
-                if assumptions:
-                    summary += " Assumptions before execution:\n" + "\n".join(
-                        f"- {item}" for item in assumptions
-                    )
-                append_message("assistant", summary)
+                if not (decision and decision.semantic_action and
+                        decision.semantic_action.kind in {"new_build", "patch_build"} and
+                        small_model_can_run(response, prepare_only=prepare_only)):
+                    append_message("assistant", "Model prepared. Review its assumptions and run when ready.")
     preview = st.session_state.get("prepared_preview")
     if not preview:
         return
@@ -107,7 +115,7 @@ def render_build(api, submit, prompt, *, prepare=False, prepare_only=False):
                  and not st.session_state.get("studio_build_attempt_error"))
     if not valid:
         st.warning("No valid model prepared. Review the interpretation and try again.")
-    with st.expander("Prepared model / assumptions", expanded=True):
+    with st.expander("Prepared model / assumptions", expanded=False):
         st.write("**Assumptions before execution**")
         for assumption in list(dict.fromkeys(
             preview.get("assumptions") or (preview.get("geospec") or {}).get("assumptions") or []
@@ -132,13 +140,29 @@ def render_build(api, submit, prompt, *, prepare=False, prepare_only=False):
         })
     requested_run = bool(prepare and decision and decision.action == "run_prepared_build")
     clicked_run = st.button("Run model", disabled=not valid or not confirmed or prepare_only)
-    if (clicked_run or requested_run) and valid and confirmed and not prepare_only:
+    serial = st.session_state.get("studio_request_serial", 0)
+    edit_serial = st.session_state.get("studio_auto_edit_serial", 0)
+    auto_key = (serial, edit_serial)
+    auto_requested = bool(
+        decision and decision.semantic_action and
+        decision.semantic_action.kind in {"new_build", "patch_build"} and
+        (prepare or edit_serial) and small_model_can_run(preview, prepare_only=prepare_only) and
+        st.session_state.get("studio_auto_submitted") != auto_key
+    )
+    if (clicked_run or requested_run or auto_requested) and valid and confirmed and not prepare_only:
+        if auto_requested:
+            # Mark before the network call; a widget rerun cannot duplicate it.
+            st.session_state["studio_auto_submitted"] = auto_key
         try:
             submit(api, JobCreateRequest(prompt="\n".join(current.build.turns) if requested_run and current.build else prompt, mode_hint="build_model", geospec=current.build.geospec,
                 interpretation_mode=current.build.interpretation_mode or preview.get("parser_mode"),
                 interpretation_degraded=current.build.degraded, degraded_fallback_confirmed=confirmed))
+            if auto_requested:
+                st.rerun()
         except GeoWorldClientError as exc:
             st.error(str(exc))
+            from geoworld_open.studio_assistant import append_message
+            append_message("assistant", str(exc))
 
 
 def submit_request(api, prompt):
@@ -191,6 +215,8 @@ def submit_request(api, prompt):
     st.session_state["studio_task_context"] = working.model_copy(update=update)
     st.session_state["studio_request_prompt"] = prompt
     st.session_state["studio_decision"] = decision
+    st.session_state["studio_request_serial"] = st.session_state.get("studio_request_serial", 0) + 1
+    st.session_state["studio_auto_edit_serial"] = 0
     if decision.route == "seismic_explorer":
         command = decision.command or seismic_workspace_command(prompt)
         if command:
