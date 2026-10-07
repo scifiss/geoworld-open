@@ -853,9 +853,16 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
             )
         else:
             st.caption("This job was created before request references were exposed to Studio.")
-    overview, science, provenance, artifacts, advanced = st.tabs(
-        ["Overview", "Model & Figures", "State / Provenance", "Artifacts", "Advanced"]
-    )
+    scientific_model = result.geospec is not None and result.intent in {"scenario_generation", "build_model"}
+    if scientific_model:
+        overview, science, provenance, details = st.tabs(
+            ["Overview", "All scientific figures", "Evidence / provenance", "Complete details"]
+        )
+        artifacts = advanced = details
+    else:
+        overview, science, provenance, artifacts, advanced = st.tabs(
+            ["Overview", "Model & Figures", "State / Provenance", "Artifacts", "Advanced"]
+        )
 
     with overview:
         if result.intent == "deepwave_reference":
@@ -868,6 +875,10 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
         if images and result.intent != "deepwave_reference":
             try:
                 st.image(api.get_artifact(job_id, images[0].name), width="stretch" if options.fit_figures else options.figure_px)
+                if scientific_model and images[0].name.endswith("summary.png"):
+                    st.download_button("Download publication figure (PNG)",
+                        data=api.get_artifact(job_id, images[0].name),
+                        file_name="geoworld-synthetic-model.png", mime="image/png")
             except GeoWorldClientError as exc:
                 st.warning(str(exc))
         st.subheader("GeoWorld result")
@@ -887,7 +898,7 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
                 f"Interpretation: {result.interpretation_mode}"
                 + (" · degraded fallback confirmed" if result.interpretation_degraded else "")
             )
-        if result.assumptions:
+        if result.assumptions and not scientific_model:
             st.subheader("Assumptions")
             for item in result.assumptions:
                 st.markdown(f"- {item}")
@@ -919,6 +930,10 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
             render_las_details(api, job_id, result.artifacts)
 
     with provenance:
+        if scientific_model and result.assumptions:
+            with st.expander("Model assumptions", expanded=False):
+                for item in result.assumptions:
+                    st.write(item)
         summary_lines = provenance_lines(result.provenance_summary)
         if summary_lines:
             st.subheader("Reproducibility summary")
@@ -1213,10 +1228,23 @@ def render_workspace(api: GeoWorldBackendClient) -> None:
             render_seismic_explorer(client)
         else:
             from geoworld_open.studio_request import render_request
-            with st.container(key="studio_workflow"):
-                render_request(client, submit_and_wait, render_las_workspace)
-            with st.container(key="studio_results"):
-                display_result(client, display_options)
+            decision = st.session_state.get("studio_decision")
+            job = st.session_state.get("last_job")
+            finished_model = bool(decision and getattr(decision, "route", None) == "build_model" and job and
+                                  job.status == "succeeded" and job.result and job.result.geospec and
+                                  st.session_state.get("last_submitted_prompt") ==
+                                  st.session_state.get("studio_request_prompt"))
+            if finished_model:
+                with st.container(key="studio_results"):
+                    display_result(client, display_options)
+                with st.expander("Edit model", expanded=False):
+                    with st.container(key="studio_workflow"):
+                        render_request(client, submit_and_wait, render_las_workspace)
+            else:
+                with st.container(key="studio_workflow"):
+                    render_request(client, submit_and_wait, render_las_workspace)
+                with st.container(key="studio_results"):
+                    display_result(client, display_options)
             if not st.session_state.get("studio_decision") and not st.session_state.get("last_job_id"):
                 st.subheader("Your workspace")
                 st.write("Ask GeoWorld a question, describe a model, or attach a file. Your active view and results appear here.")

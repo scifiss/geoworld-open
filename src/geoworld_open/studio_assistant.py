@@ -44,7 +44,20 @@ def sync_history():
         messages = st.session_state.setdefault("assistant_history", [])
         if prompt and not any(message == {"role": "user", "content": prompt} for message in messages):
             append_message("user", prompt)
-        append_message("assistant", job.result.answer)
+        if job.result.geospec and job.result.intent in {"scenario_generation", "build_model"}:
+            layers = job.result.geospec.get("geology", {}).get("layers", [])
+            co2 = job.result.geospec.get("petrophysics", {}).get("co2_plume", {})
+            carbonate = next((layer.get("porosity") for layer in layers
+                              if layer.get("lithology") == "carbonate"), None)
+            message = f"Generated {len(layers)}-layer synthetic model."
+            if co2.get("enabled"):
+                message += " CO₂ plume in sand;"
+            if carbonate is not None:
+                message += f" carbonate porosity {carbonate:.2f}."
+            message += " Results ready."
+            append_message("assistant", message)
+        else:
+            append_message("assistant", job.result.answer)
         seen_jobs.append(job_id)
     elif job_id and job_id not in seen_jobs and job is not None and job.status == "failed":
         from geoworld_open.studio_runtime import friendly_job_error
@@ -119,7 +132,10 @@ def render_composer(api):
                 "seismic" if decision.route == "seismic_explorer" or
                 (decision.route == "ask_question" and current.active_task == "seismic") else "request"
             )
-            if decision.route != "seismic_explorer" or "seismic_unified_request" not in st.session_state:
+            if (decision.route != "seismic_explorer" or "seismic_unified_request" not in st.session_state) and not (
+                decision.route == "build_model" and decision.semantic_action and
+                decision.semantic_action.kind in {"new_build", "patch_build"}
+            ):
                 append_message("assistant", decision.message)
             # Widget state is cleared before the next widget is instantiated.
             # Clearing the live text_area key here would raise in Streamlit 1.65.

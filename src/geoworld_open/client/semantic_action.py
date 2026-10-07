@@ -14,6 +14,7 @@ class RequestedLayer(ReferenceContract):
 class NewBuild(ReferenceContract):
     kind: Literal["new_build"] = "new_build"
     layers: list[RequestedLayer] = Field(min_length=1, max_length=20)
+    prepare_only: bool = False
     co2_host_index: int | None = Field(default=None, ge=0, le=19)
     fault_scope: Literal["none", "through_going", "layer_restricted"] = "none"
     fault_dip_degrees: float | None = Field(default=None, ge=5, le=89)
@@ -28,6 +29,7 @@ class LayerEdit(ReferenceContract):
 class PatchBuild(ReferenceContract):
     kind: Literal["patch_build"] = "patch_build"
     edits: list[LayerEdit] = Field(min_length=1, max_length=10)
+    prepare_only: bool = False
 
 class RunPreparedBuild(ReferenceContract):
     kind: Literal["run_prepared_build"] = "run_prepared_build"

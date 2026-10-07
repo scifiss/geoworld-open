@@ -58,6 +58,7 @@ def render_prepared_geometry(api, preview):
                     response['confirmation_required'] = preview.get('confirmation_required',False)
                     commit_build(response, task_context().build.turns)
                     st.session_state['prepared_preview'] = response
+                    st.session_state['studio_auto_edit_serial'] = st.session_state.get('studio_auto_edit_serial', 0) + 1
                     st.session_state.pop('unified_fallback_confirmed',None)
                     append_message('assistant', 'Layer edits validated. Review the updated geometry, values and assumptions before Run.')
                     st.rerun()
