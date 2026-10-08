@@ -217,7 +217,7 @@ def submit_request(api, prompt):
         update.update(pending_semantic_action=decision.semantic_action, unresolved_clarification=decision.message, execution_allowed=False)
     if decision.route == "seismic_explorer":
         update["active_task"] = "seismic"
-    elif decision.route not in {"ask_question", "blocked", "build_model"}:
+    elif decision.route not in {"ask_question", "blocked", "build_model", "scientific_workflow"}:
         update.update(active_task="specialized", specialized_route=decision.route)
     st.session_state["studio_task_context"] = working.model_copy(update=update)
     st.session_state["studio_request_prompt"] = prompt

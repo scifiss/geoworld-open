@@ -9,7 +9,9 @@ from geoworld_open.client.reference_experiment import ReferenceContract
 
 class ScientificGoalAction(ReferenceContract):
     kind: Literal["scientific_goal"] = "scientific_goal"
-    objective: Literal["geological_realization", "baseline_avo", "fluid_avo", "revisualize", "unsupported"]
+    objective: Literal["geological_realization", "baseline_avo", "fluid_avo", "revisualize", "unsupported"] = Field(
+        description="Preserve the entire compound goal: controlled fluid change plus AVO is fluid_avo, even when it also requests geology.")
+    requested_outputs: list[Literal["geological_realization", "paired_fluid_states", "avo_response", "visualization"]] = Field(default_factory=list, max_length=4)
     source: Literal["available_constraints", "existing_model"] = "available_constraints"
     spatial_scope: Literal["2d", "3d"] = "2d"
     realization_count: int = Field(default=1, ge=1, le=4)
@@ -20,6 +22,15 @@ class ScientificGoalAction(ReferenceContract):
 
     @model_validator(mode="after")
     def valid_saturations(self):
+        products = set(self.requested_outputs)
+        if len(products) != len(self.requested_outputs):
+            raise ValueError("Requested scientific products must be unique")
+        if products:
+            derived = ("fluid_avo" if "paired_fluid_states" in products else
+                       "baseline_avo" if "avo_response" in products else
+                       "geological_realization" if "geological_realization" in products else "revisualize")
+            if self.objective != derived:
+                raise ValueError("Scientific objective must preserve all requested products")
         if self.saturations is not None and (
             self.saturations[0] != 0 or any(not 0 <= s <= 1 for s in self.saturations)
             or any(b <= a for a, b in zip(self.saturations, self.saturations[1:]))

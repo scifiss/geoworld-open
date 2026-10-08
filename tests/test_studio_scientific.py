@@ -70,3 +70,49 @@ def test_provider_failure_preserves_scientific_result_and_context(app,monkeypatc
 def test_scientific_contract_roundtrip_through_http_json():
     preview=ScientificWorkflowPreview(request='scientific request',goal=ScientificGoalAction(objective='fluid_avo',saturations=(0,.2,.65)),message='prepared',estimated_seconds=(10,90))
     assert ScientificWorkflowPreview.model_validate(json.loads(preview.model_dump_json()))==preview
+
+
+def test_general_question_keeps_active_scientific_workspace(app,monkeypatch):
+    calls=setup(monkeypatch);app.run(timeout=20)
+    app.text_area(key='assistant_prompt').set_value('evaluate fluid AVO')
+    button(app,'Send').click().run(timeout=20)
+    monkeypatch.setattr(GeoWorldBackendClient,'interpret_studio',lambda *a,**kw: StudioDecision(
+        interpretation=StudioIntent(operation='question'),route='ask_question',action='general_question',message='Answer question'))
+    def get_job(_,job_id):
+        result=fixture_result() if job_id=='b'*32 else JobResult(intent='qa',reason='test',answer='General answer')
+        return JobStatusResponse(job_id=job_id,status='succeeded',progress='done',result=result)
+    monkeypatch.setattr(GeoWorldBackendClient,'get_job',get_job)
+    monkeypatch.setattr(GeoWorldBackendClient,'submit_job',lambda _,r: calls.append(r) or JobCreateResponse(job_id='c'*32,status='queued',progress='queued'))
+    app.text_area(key='assistant_prompt').set_value('What is an unconformity?')
+    button(app,'Send').click().run(timeout=20)
+    assert not app.exception and app.get('plotly_chart') and len(calls)==2
+    assert app.session_state['studio_task_context'].scientific.completed_job_id=='b'*32
+    assert app.session_state['assistant_history'][-1]['content']=='General answer'
+
+
+def test_scientific_context_survives_next_http_request(app,monkeypatch):
+    from geoworld_open.client.studio_request import StudioRequest
+    setup(monkeypatch);app.run(timeout=20)
+    app.text_area(key='assistant_prompt').set_value('evaluate fluid AVO')
+    button(app,'Send').click().run(timeout=20)
+    current=app.session_state['studio_task_context']
+    encoded=StudioRequest(prompt='change scenarios',context=current).model_dump(mode='json')
+    assert StudioRequest.model_validate(encoded).context.active_task=='scientific'
+    assert current.specialized_route is None
+
+
+def test_reopen_scientific_run_restores_typed_context(app,monkeypatch):
+    setup(monkeypatch)
+    from geoworld_open.client.scientific_workflow import ScientificGoalAction
+    original=GeoWorldBackendClient.get_artifact
+    def artifact(self,job_id,name):
+        if name=='interaction.json':return b'{"request":"Original scientific goal"}'
+        if name=='workflow-plan.json':return json.dumps({'goal':ScientificGoalAction(objective='fluid_avo').model_dump(mode='json')}).encode()
+        return original(self,job_id,name)
+    monkeypatch.setattr(GeoWorldBackendClient,'get_artifact',artifact)
+    app.run(timeout=20)
+    app.text_input(key='saved_job_id').set_value('b'*32).run(timeout=20)
+    button(app,'Open run').click().run(timeout=20)
+    assert not app.exception and app.get('plotly_chart')
+    assert app.session_state['studio_task_context'].scientific.completed_job_id=='b'*32
+    assert app.session_state['last_submitted_prompt']=='Original scientific goal'

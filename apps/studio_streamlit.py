@@ -1224,6 +1224,18 @@ def render_workspace(api: GeoWorldBackendClient) -> None:
     from geoworld_open.studio_assistant import render_assistant_studio
 
     def active(client):
+        from geoworld_open.studio_context import task_context
+        context = task_context()
+        decision = st.session_state.get("studio_decision")
+        if (context.active_task == "scientific" and context.scientific and context.scientific.completed_job_id
+                and decision and decision.route == "ask_question"):
+            from geoworld_open.studio_request import render_request
+            render_request(client, submit_and_wait, render_las_workspace)
+            from geoworld_open.studio_scientific import render_scientific_result
+            retained = client.get_job(context.scientific.completed_job_id)
+            if retained.result and retained.result.scientific:
+                render_scientific_result(client, retained.job_id, retained.result)
+            return
         if st.session_state.get("studio_active_context") == "seismic":
             decision = st.session_state.get("studio_decision")
             if decision and decision.route == "ask_question":
@@ -1277,10 +1289,20 @@ def render_saved_run(api):
                     return
                 # Read everything before replacing visible state; failed access
                 # must not destroy the previously displayed result.
-                original = json.loads(api.get_artifact(job_id, "request.json"))
-                prompt = original["prompt"]
+                original = json.loads(api.get_artifact(job_id, "interaction.json" if job.result.scientific else "request.json"))
+                prompt = original["request"] if job.result.scientific else original["prompt"]
                 if not isinstance(prompt, str):
                     raise ValueError("Invalid recorded request")
+                recovered_science = None
+                if job.result.scientific:
+                    from geoworld_open.client.scientific_workflow import ScientificExperimentContext
+                    from geoworld_open.studio_context import task_context
+                    plan = json.loads(api.get_artifact(job_id, "workflow-plan.json"))
+                    recovered_science = task_context().model_copy(update={
+                        "active_task": "scientific", "scientific": ScientificExperimentContext(
+                            preparation_id=job.result.scientific.preparation_id, goal=plan["goal"], completed_job_id=job_id),
+                        "specialized_route": None,
+                    })
                 clear_last_result()
                 st.session_state["last_job"] = job
                 st.session_state["last_job_id"] = job_id
@@ -1288,6 +1310,8 @@ def render_saved_run(api):
                 st.session_state["last_result_source"] = "saved_run"
                 st.session_state["last_submitted_mode_hint"] = None
                 st.session_state["studio_active_context"] = "request"
+                if recovered_science:
+                    st.session_state["studio_task_context"] = recovered_science
                 st.session_state.pop("studio_decision", None)
                 # Job status on older backends has no correlation field. Never
                 # reuse an unrelated run's identifier or fail report recovery.

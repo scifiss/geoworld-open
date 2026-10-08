@@ -65,7 +65,8 @@ def render_scientific_result(api, job_id, result):
         try:
             section = json.loads(api.get_artifact(job_id, "scientific-section.json"))
             import plotly.graph_objects as go
-            field = st.selectbox("Scientific field", list(section["fields"]), key="scientific_field")
+            names = list(section["fields"])
+            field = st.selectbox("Scientific field", names, index=names.index("sand_probability") if "sand_probability" in names else 0, key="scientific_field")
             values = section["fields"][field]
             signed = field.startswith("delta_") or field in {"near", "mid", "far"}
             import numpy as np
