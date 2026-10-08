@@ -13,6 +13,7 @@ from geoworld_open.client.configurable_fwi import ConfigurableFWIResult
 from geoworld_open.client.scientific_experiment import ScientificExperimentDraft
 from geoworld_open.client.job_progress import JobProgress
 from geoworld_open.client.fwi import FWIResult
+from geoworld_open.client.scientific_workflow import ScientificWorkflowResult
 
 
 class UserProfile(BaseModel):
@@ -80,6 +81,7 @@ class LASQuicklookSettings(BaseModel):
 
 
 class JobCreateRequest(BaseModel):
+    scientific_preparation_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
     prompt: str = Field(min_length=1, max_length=20000)
     mode_hint: str | None = None
     geospec: dict[str, Any] | None = None
@@ -149,6 +151,7 @@ class QACitation(BaseModel):
 
 
 class JobResult(BaseModel):
+    scientific: ScientificWorkflowResult | None = None
     intent: str
     reason: str
     answer: str

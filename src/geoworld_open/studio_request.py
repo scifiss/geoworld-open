@@ -181,9 +181,11 @@ def submit_request(api, prompt):
         st.session_state["studio_request_error"] = str(exc)
         return None
     previous_decision = st.session_state.get("studio_decision")
+    st.session_state["studio_previous_decision"] = previous_decision
+    st.session_state["studio_previous_request_prompt"] = st.session_state.get("studio_request_prompt", "")
     if previous_decision and previous_decision.route == "ask_question":
         previous_decision = st.session_state.get("studio_workspace_decision")
-    preserving = decision.route == "ask_question" or decision.action in {"continue_specialized_workflow", "run_prepared_build"}
+    preserving = decision.route in {"ask_question", "blocked"} or decision.action in {"continue_specialized_workflow", "run_prepared_build"}
     if decision.route == "ask_question" and st.session_state.get("studio_decision") and st.session_state["studio_decision"].route != "ask_question":
         st.session_state["studio_workspace_decision"] = st.session_state["studio_decision"]
         st.session_state["studio_workspace_prompt"] = st.session_state.get("studio_request_prompt", "")
@@ -206,6 +208,11 @@ def submit_request(api, prompt):
         st.session_state["studio_build_attempt_error"] = False
     st.session_state["studio_previous_task_context"] = working
     update = {"last_action": decision.action}
+    if decision.route == "scientific_workflow" and decision.scientific:
+        from geoworld_open.client.scientific_workflow import ScientificExperimentContext
+        update.update(active_task="scientific", scientific=ScientificExperimentContext(
+            preparation_id=decision.scientific.preparation_id, goal=decision.scientific.goal,
+            completed_job_id=working.scientific.completed_job_id if working.scientific else None))
     if decision.action == "clarification_required" and decision.semantic_action is not None:
         update.update(pending_semantic_action=decision.semantic_action, unresolved_clarification=decision.message, execution_allowed=False)
     if decision.route == "seismic_explorer":
@@ -236,6 +243,10 @@ def render_request(api, submit, render_las):
         st.caption(execution_model_line(decision.llm, purpose="Request understanding"))
     if decision.route == "blocked":
         st.warning(decision.message)
+        return
+    if decision.route == "scientific_workflow":
+        from geoworld_open.studio_scientific import render_scientific_request
+        render_scientific_request(api, submit, decision)
         return
     st.info(decision.message)
     prepare_only = decision.interpretation.prepare_only
@@ -290,7 +301,7 @@ def render_request(api, submit, render_las):
         from geoworld_open.studio_context import task_context
         context = task_context()
         saved = st.session_state.get("studio_workspace_decision")
-        if context.active_task in {"build", "specialized"} and saved:
+        if context.active_task in {"build", "specialized", "scientific"} and saved:
             st.session_state["studio_decision"] = saved
             st.session_state["studio_request_prompt"] = st.session_state.get("studio_workspace_prompt", "")
             try:

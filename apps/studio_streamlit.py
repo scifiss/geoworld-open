@@ -766,7 +766,7 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
     if not job_id:
         return
     reconnect_mode = st.session_state.get("last_submitted_mode_hint")
-    if job is None and reconnect_mode in {"deepwave_reference", "bounded_fwi", "configurable_marmousi_fwi", "model_rtm", "model_forward", "ask_question", "build_model"}:
+    if job is None and reconnect_mode in {"deepwave_reference", "bounded_fwi", "configurable_marmousi_fwi", "model_rtm", "model_forward", "ask_question", "build_model", "scientific_workflow"}:
         try:
             job = api.get_job(job_id)
             st.session_state["last_job"] = job
@@ -788,6 +788,7 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
         and st.session_state.get("last_result_source") != "saved_run"
         and active_prompt
         and st.session_state.get("last_submitted_prompt") != active_prompt
+        and not (job.result and job.result.scientific)
     ):
         return
     if job.status == "failed":
@@ -798,6 +799,10 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
         return
 
     result = job.result
+    if result.scientific:
+        from geoworld_open.studio_scientific import render_scientific_result
+        render_scientific_result(api, job_id, result)
+        return
     submitted_prompt = st.session_state.get("last_submitted_prompt")
     if submitted_prompt:
         st.caption("Saved result for: " + str(submitted_prompt))

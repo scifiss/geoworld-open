@@ -176,7 +176,15 @@ def render_assistant_studio(api, render_active, render_manual):
         </style>
     """, unsafe_allow_html=True)
     with st.container(key="assistant_workspace_layout"):
-        main, assistant = st.columns([2.15, 1], gap="large")
+        from geoworld_open.studio_context import task_context
+        if task_context().active_task == "scientific":
+            assistant, main = st.columns([1, 2.15], gap="large")
+            st.markdown("""<style>@media (max-width: 900px) {
+                .st-key-assistant_workspace_layout > div > [data-testid=stHorizontalBlock] > [data-testid=stColumn]:first-child {order: 1;}
+                .st-key-assistant_workspace_layout > div > [data-testid=stHorizontalBlock] > [data-testid=stColumn]:last-child {order: 0;}
+            }</style>""", unsafe_allow_html=True)
+        else:
+            main, assistant = st.columns([2.15, 1], gap="large")
         # Process controls before rendering the workspace so explicit submission
         # can invalidate scientific preparation widget state safely.
         with assistant:
