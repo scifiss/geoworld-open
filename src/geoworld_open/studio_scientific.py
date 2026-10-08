@@ -58,7 +58,7 @@ def render_scientific_request(api, submit, decision):
 def render_scientific_result(api, job_id, result):
     science = result.scientific
     st.subheader("Scientific workspace")
-    st.caption("Field-conditioned synthetic research experiment · scenario sensitivity")
+    st.caption(science.limitations[0] if science.limitations else "Scientific experiment · inspect source provenance before reuse")
     overview, models, evidence, details = st.tabs([
         "Overview", "Models & Figures", "Scientific Evidence / Provenance", "Complete Details"])
     with overview:

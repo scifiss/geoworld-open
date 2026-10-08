@@ -89,3 +89,10 @@ def test_conversation_status_requires_verified_issue_evidence():
         issues=["Canonical deterministic issue."],
     )
     assert state.status == "unsupported"
+
+
+def test_independent_synthetic_source_is_explicit_contract_not_eligibility():
+    from geoworld_open.client.scientific_workflow import ScientificGoalAction
+    action=ScientificGoalAction(objective='fluid_avo',source='independent_synthetic')
+    assert action.source=='independent_synthetic'
+    assert ScientificGoalAction(objective='fluid_avo').source=='available_constraints'

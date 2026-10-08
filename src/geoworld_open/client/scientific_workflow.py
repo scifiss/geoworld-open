@@ -12,7 +12,8 @@ class ScientificGoalAction(ReferenceContract):
     objective: Literal["geological_realization", "baseline_avo", "fluid_avo", "revisualize", "unsupported"] = Field(
         description="Preserve the entire compound goal: controlled fluid change plus AVO is fluid_avo, even when it also requests geology.")
     requested_outputs: list[Literal["geological_realization", "paired_fluid_states", "avo_response", "visualization"]] = Field(default_factory=list, max_length=4)
-    source: Literal["available_constraints", "existing_model"] = "available_constraints"
+    source: Literal["available_constraints", "independent_synthetic", "existing_model"] = Field(
+        default="available_constraints", description="Independent synthetic examples must be requested explicitly; source labels do not grant provenance or commercial eligibility.")
     spatial_scope: Literal["2d", "3d"] = "2d"
     realization_count: int = Field(default=1, ge=1, le=4)
     saturations: tuple[float, ...] | None = Field(default=None, min_length=2, max_length=5, strict=False)
