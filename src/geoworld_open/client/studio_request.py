@@ -1,6 +1,7 @@
 """PUBLIC_STANDARD: a bounded interpretation, not an executable agent plan."""
 from typing import Annotated, Any, Literal
 from geoworld_open.client.semantic_action import SemanticAction
+from geoworld_open.client.scientific_workflow import ScientificExperimentContext, ScientificWorkflowPreview
 
 from pydantic import Field, field_validator, model_validator
 import json
@@ -10,7 +11,7 @@ from geoworld_open.client.reference_experiment import ReferenceContract
 
 ContextAction = Literal["patch_build", "prepare_build", "run_prepared_build",
     "seismic_metadata", "seismic_view_command", "continue_specialized_workflow",
-    "new_task", "general_question", "clarification_required"]
+    "new_task", "general_question", "clarification_required", "scientific_goal"]
 
 
 class StudioBuildContext(ReferenceContract):
@@ -33,7 +34,8 @@ class StudioBuildContext(ReferenceContract):
 class StudioTaskContext(ReferenceContract):
     """Session working state; never authorization, chat memory or scientific truth."""
     pending_semantic_action: SemanticAction | None = None
-    active_task: Literal["none", "build", "seismic", "specialized"] = "none"
+    active_task: Literal["none", "build", "seismic", "specialized", "scientific"] = "none"
+    scientific: ScientificExperimentContext | None = None
     build: StudioBuildContext | None = None
     active_seismic_dataset_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{24}$")
     seismic_conversation_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
@@ -62,7 +64,7 @@ class StudioRequest(ReferenceContract):
 
 
 class StudioIntent(ReferenceContract):
-    operation: Literal["question", "build", "preview", "rtm", "forward", "fwi", "las", "seismic", "unsupported"]
+    operation: Literal["question", "build", "preview", "rtm", "forward", "fwi", "las", "seismic", "unsupported", "scientific"]
     dataset: Literal["marmousi1", "marmousi2", "synthetic"] | None = None
     prepare_only: bool = False
     context_action: Literal["patch_build", "prepare_build", "continue_specialized_workflow", "new_task", "general_question"] | None = None
@@ -71,7 +73,8 @@ class StudioIntent(ReferenceContract):
 
 class StudioDecision(ReferenceContract):
     interpretation: StudioIntent
-    route: Literal["ask_question", "build_model", "marmousi_model", "deepwave_reference", "model_rtm", "model_forward", "bounded_fwi", "configurable_marmousi_fwi", "las_quicklook", "seismic_explorer", "blocked"]
+    route: Literal["ask_question", "build_model", "marmousi_model", "deepwave_reference", "model_rtm", "model_forward", "bounded_fwi", "configurable_marmousi_fwi", "las_quicklook", "seismic_explorer", "blocked", "scientific_workflow"]
+    scientific: ScientificWorkflowPreview | None = None
     message: str
     llm: dict[str, Any] | None = None
     build_spec: dict[str, Any] | None = None

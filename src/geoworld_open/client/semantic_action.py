@@ -2,6 +2,7 @@
 from typing import Annotated, Literal
 from pydantic import Field
 from geoworld_open.client.reference_experiment import ReferenceContract
+from geoworld_open.client.scientific_workflow import ScientificGoalAction
 
 LithologyName = Literal["shale", "sand", "sandstone", "carbonate", "limestone", "salt"]
 
@@ -60,5 +61,5 @@ class NewTask(ReferenceContract):
     issues: list[str] = Field(default_factory=list, max_length=20)
 
 SemanticAction = Annotated[NewBuild | PatchBuild | RunPreparedBuild | PrepareBuild |
-    SeismicMetadataQuestion | SeismicViewCommand | GeneralQuestion | ClarificationRequired | NewTask,
+    SeismicMetadataQuestion | SeismicViewCommand | GeneralQuestion | ClarificationRequired | NewTask | ScientificGoalAction,
     Field(discriminator="kind")]
