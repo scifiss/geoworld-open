@@ -120,7 +120,8 @@ class CapabilityDescription(BaseModel):
     name: str = Field(min_length=1)
     version: str = Field(min_length=1)
     category: str = Field(min_length=1)
-    availability: Literal["active"] = "active"
+    availability: Literal["active", "unavailable"] = "active"
+    availability_reason: str | None = None
     input_schema: dict[str, Any]
     output_schema: dict[str, Any]
     required_input_fields: list[str] = Field(default_factory=list)
