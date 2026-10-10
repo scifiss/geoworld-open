@@ -72,6 +72,25 @@ def test_scientific_contract_roundtrip_through_http_json():
     assert ScientificWorkflowPreview.model_validate(json.loads(preview.model_dump_json()))==preview
 
 
+def test_absent_optional_vector_exports_do_not_block_completed_science(app,monkeypatch):
+    calls=setup(monkeypatch)
+    original=GeoWorldBackendClient.get_artifact
+    requested=[]
+    def artifact(self,job_id,name):
+        requested.append(name)
+        if name in {'scientific-overview.svg','scientific-overview.pdf'}:
+            raise GeoWorldClientError('Optional publication export is not present')
+        return original(self,job_id,name)
+    monkeypatch.setattr(GeoWorldBackendClient,'get_artifact',artifact)
+    app.run(timeout=20)
+    app.text_area(key='assistant_prompt').set_value('evaluate fluid AVO')
+    button(app,'Send').click().run(timeout=20)
+    app.run(timeout=20)
+    assert not app.exception and len(calls)==1 and app.get('plotly_chart')
+    assert app.session_state['studio_task_context'].scientific.completed_job_id=='b'*32
+    assert 'scientific-overview.svg' not in requested and 'scientific-overview.pdf' not in requested
+
+
 def test_general_question_keeps_active_scientific_workspace(app,monkeypatch):
     calls=setup(monkeypatch);app.run(timeout=20)
     app.text_area(key='assistant_prompt').set_value('evaluate fluid AVO')

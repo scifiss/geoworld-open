@@ -91,7 +91,10 @@ def render_scientific_result(api, job_id, result):
     with models:
         image = api.get_artifact(job_id, science.figure_artifact)
         st.image(image, caption="Actual numerical fields; matched states, not field monitoring", use_container_width=True)
-        for name in (science.model_artifact, science.evidence_artifact, "scientific-overview.svg", "scientific-overview.pdf"):
+        names = [science.model_artifact, science.evidence_artifact]
+        available = {item.name for item in result.artifacts}
+        names.extend(name for name in ("scientific-overview.svg", "scientific-overview.pdf") if name in available)
+        for name in names:
             st.download_button("Download " + name, api.get_artifact(job_id, name), file_name=name, key="scientific_download_" + name)
     with evidence:
         st.write("Selected capabilities: " + " → ".join(science.workflow))
