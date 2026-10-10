@@ -6,7 +6,9 @@ from geoworld_open.client.studio_session import StudioConversationSave
 
 
 def persist_conversation(api):
-    if st.session_state.get('studio_recovery_supported') is False:
+    # Recovery is optional: only persist after the authenticated sidebar has
+    # confirmed server support. Standalone viewers retain their session history.
+    if st.session_state.get('studio_recovery_supported') is not True:
         return
     from .studio_context import task_context
     context=task_context()
