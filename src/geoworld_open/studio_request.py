@@ -249,9 +249,8 @@ def render_request(api, submit, render_las):
         render_scientific_request(api, submit, decision)
         return
     if getattr(decision, "evidence_assessment", None):
-        st.markdown(decision.evidence_assessment.answer)
-        st.caption("Assessment of saved results · " + str(decision.evidence_assessment.evidence_count)
-                   + " evidence items · no new simulation")
+        # The single Assistant already contains this answer. Keep the active
+        # numerical workspace separate from the latest conversational response.
         return
     st.info(decision.message)
     prepare_only = decision.interpretation.prepare_only

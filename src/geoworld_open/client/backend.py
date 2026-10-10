@@ -326,6 +326,26 @@ class GeoWorldBackendClient:
         payload = self._json_request("GET", f"/jobs/{job_id}")
         return JobStatusResponse.model_validate(payload)
 
+    def save_studio_conversation(self, conversation_id, request):
+        from .studio_session import StudioConversation
+        return StudioConversation.model_validate(self._json_request('PUT',
+            '/studio/conversations/' + quote(conversation_id, safe=''), request.model_dump(mode='json')))
+
+    def recent_studio_conversations(self):
+        from .studio_session import StudioConversation
+        return [StudioConversation.model_validate(row) for row in self._json_request('GET', '/studio/conversations')['conversations']]
+
+    def restore_studio_conversation(self, conversation_id):
+        from .studio_session import StudioConversation
+        return StudioConversation.model_validate(self._json_request('GET',
+            '/studio/conversations/' + quote(conversation_id, safe='')))
+
+    def scientific_figure(self, job_id, request):
+        status, body = self._send('POST', '/jobs/' + quote(job_id, safe='') + '/scientific-figure', request.model_dump(mode='json'))
+        if status != 200:
+            raise GeoWorldClientError(self._error_message(status, body))
+        return body
+
     def get_artifact(self, job_id: str, artifact_name: str) -> bytes:
         status, body = self._send("GET", f"/jobs/{job_id}/artifacts/{artifact_name}")
         if 200 <= status < 300:

@@ -104,7 +104,7 @@ def client(token: str | None = None) -> GeoWorldBackendClient:
 def clear_session() -> None:
     clear_last_result()
     for key in list(st.session_state):
-        if key.startswith(("marmousi_", "studio_", "unified_", "assistant_", "seismic_", "horizon_")):
+        if key.startswith(("marmousi_", "studio_", "unified_", "assistant_", "scientific_", "seismic_", "horizon_")):
             st.session_state.pop(key, None)
     for key in (
         "access_token",
@@ -1228,11 +1228,16 @@ def render_workspace(api: GeoWorldBackendClient) -> None:
         context = task_context()
         decision = st.session_state.get("studio_decision")
         if (context.active_task == "scientific" and context.scientific and context.scientific.completed_job_id
-                and decision and decision.route == "ask_question"):
+                and (decision is None or decision.route in {"ask_question", "blocked"})):
             from geoworld_open.studio_request import render_request
-            render_request(client, submit_and_wait, render_las_workspace)
+            if decision and decision.route == "ask_question":
+                render_request(client, submit_and_wait, render_las_workspace)
             from geoworld_open.studio_scientific import render_scientific_result
-            retained = client.get_job(context.scientific.completed_job_id)
+            try:
+                retained = client.get_job(context.scientific.completed_job_id)
+            except GeoWorldClientError:
+                st.warning("Saved scientific results are unavailable. Restore another recent conversation or open an available saved run.")
+                return
             if retained.result and retained.result.scientific:
                 render_scientific_result(client, retained.job_id, retained.result)
             return
@@ -1359,6 +1364,8 @@ with st.sidebar:
         clear_session()
         st.rerun()
     render_saved_run(api)
+    from geoworld_open.studio_recovery import render_recovery
+    render_recovery(api)
     with st.expander("Display settings"):
         st.slider("Text size (px)", 16, 24, 18, key="display_text_px")
         fit_figures = st.checkbox("Fit figures to column", value=True, key="display_fit_figures")
