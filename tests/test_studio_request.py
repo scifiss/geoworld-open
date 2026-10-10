@@ -27,6 +27,9 @@ def app(monkeypatch):
     monkeypatch.setenv("GEOWORLD_BACKEND_URL", "http://127.0.0.1:8100")
     monkeypatch.setenv("GEOWORLD_STUDIO_LOCAL_RTM", "1")
     monkeypatch.setattr(GeoWorldBackendClient, "get_llm_health", lambda _: {})
+    def no_recovery(_):
+        raise GeoWorldClientError('Conversation recovery is outside this offline workflow fixture')
+    monkeypatch.setattr(GeoWorldBackendClient, 'recent_studio_conversations', no_recovery)
     monkeypatch.setattr(GeoWorldBackendClient, "get_export", lambda *_: b"archive-fixture")
     monkeypatch.setattr(GeoWorldBackendClient, "get_artifact", lambda *_: (ROOT / "docs/assets/flagship_world_demo.png").read_bytes())
     monkeypatch.setattr(GeoWorldBackendClient, "submit_job", lambda *_: pytest.fail("No implicit numerical job permitted"))

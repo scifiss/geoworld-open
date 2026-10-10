@@ -68,5 +68,6 @@ GeoWorldBackendClient.get_llm_health = lambda _self: {
 }
 GeoWorldBackendClient.get_artifact = lambda *_args: (ROOT / "docs/assets/flagship_world_demo.png").read_bytes()
 GeoWorldBackendClient.get_export = no_export
+GeoWorldBackendClient.recent_studio_conversations = no_export
 GeoWorldBackendClient.submit_job = no_submission
 runpy.run_path(str(ROOT / "apps/studio_streamlit.py"), run_name="__main__")

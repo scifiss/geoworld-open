@@ -140,6 +140,8 @@ def render_composer(api):
             # Widget state is cleared before the next widget is instantiated.
             # Clearing the live text_area key here would raise in Streamlit 1.65.
             st.session_state["assistant_clear_composer"] = True
+            from geoworld_open.studio_recovery import persist_conversation
+            persist_conversation(api)
             st.rerun()
         else:
             append_message("assistant", st.session_state["studio_request_error"])
@@ -160,8 +162,8 @@ def render_assistant_studio(api, render_active, render_manual):
         [data-testid="stLayoutWrapper"]:has(> .st-key-assistant_panel) {height: 100%;}
         .st-key-assistant_panel {position: sticky; top: 1rem; height: fit-content !important; flex: 0 1 auto !important;}
         [data-testid="stLayoutWrapper"]:has(> .st-key-assistant_history), .st-key-assistant_history {
-            height: clamp(160px, calc(100dvh - 740px), 420px) !important;
-            max-height: clamp(160px, calc(100dvh - 740px), 420px) !important;
+            height: clamp(280px, 45dvh, 600px) !important;
+            max-height: clamp(280px, 45dvh, 600px) !important;
             min-height: 0 !important; overflow-y: auto; flex: 0 1 auto !important;
         }
         .st-key-assistant_composer {position: sticky; bottom: 0; z-index: 5;
@@ -176,21 +178,13 @@ def render_assistant_studio(api, render_active, render_manual):
         </style>
     """, unsafe_allow_html=True)
     with st.container(key="assistant_workspace_layout"):
-        from geoworld_open.studio_context import task_context
-        if task_context().active_task == "scientific":
-            assistant, main = st.columns([1, 2.15], gap="large")
-            st.markdown("""<style>@media (max-width: 900px) {
-                .st-key-assistant_workspace_layout > div > [data-testid=stHorizontalBlock] > [data-testid=stColumn]:first-child {order: 1;}
-                .st-key-assistant_workspace_layout > div > [data-testid=stHorizontalBlock] > [data-testid=stColumn]:last-child {order: 0;}
-            }</style>""", unsafe_allow_html=True)
-        else:
-            main, assistant = st.columns([2.15, 1], gap="large")
+        main, assistant = st.columns([2.15, 1], gap="large")
         # Process controls before rendering the workspace so explicit submission
         # can invalidate scientific preparation widget state safely.
         with assistant:
             with st.container(key="assistant_panel"):
                 st.markdown("### GeoWorld Assistant")
-                st.caption("Conversation is held in this browser session. Persistent project memory is not available yet.")
+                st.caption("Conversation · scroll to revisit earlier questions and answers")
                 history_slot = st.container(key="assistant_history", height=420, border=True)
                 notice_slot = st.container()
                 render_composer(api)
@@ -202,6 +196,8 @@ def render_assistant_studio(api, render_active, render_manual):
             if not manual:
                 render_active(api)
         sync_history()
+        from geoworld_open.studio_recovery import persist_conversation
+        persist_conversation(api)
         with history_slot:
             messages = st.session_state.get("assistant_history", [])
             if not messages:
