@@ -71,10 +71,22 @@ class StudioIntent(ReferenceContract):
     issues: list[str] = Field(default_factory=list, max_length=20)
 
 
+class EvidenceAssessmentReceipt(ReferenceContract):
+    """PUBLIC_STANDARD: completed owner-scoped assessment, not a simulation."""
+    record_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source_job_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    objective: str = Field(min_length=1, max_length=100)
+    answer: str = Field(min_length=1, max_length=8000)
+    conclusion: str = Field(min_length=1, max_length=2000)
+    evidence_count: int = Field(ge=0, le=64)
+    gaps: list[str] = Field(default_factory=list, max_length=64)
+
+
 class StudioDecision(ReferenceContract):
     interpretation: StudioIntent
     route: Literal["ask_question", "build_model", "marmousi_model", "deepwave_reference", "model_rtm", "model_forward", "bounded_fwi", "configurable_marmousi_fwi", "las_quicklook", "seismic_explorer", "blocked", "scientific_workflow"]
     scientific: ScientificWorkflowPreview | None = None
+    evidence_assessment: EvidenceAssessmentReceipt | None = None
     message: str
     llm: dict[str, Any] | None = None
     build_spec: dict[str, Any] | None = None
