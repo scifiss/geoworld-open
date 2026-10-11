@@ -20,13 +20,15 @@ def task_context():
     return value
 
 
-def commit_build(response, turns):
+def commit_build(response, turns, *, source_action=None):
     if not isinstance(response.get("geospec"), dict):
         return
     previous = task_context()
     errors = [issue["message"] for issue in response.get("issues", [])
               if issue.get("severity") == "error"]
     build = StudioBuildContext(
+        source_prompt=turns[0] if source_action else previous.build.source_prompt if previous.build and previous.build.turns and previous.build.turns[0] == turns[0] else None,
+        source_action=source_action if source_action else previous.build.source_action if previous.build and previous.build.turns and previous.build.turns[0] == turns[0] else None,
         geospec=response["geospec"], turns=turns if len(turns) <= 20 else [turns[0], *turns[-19:]], valid=bool(response.get("valid")),
         confirmation_required=bool(response.get("confirmation_required")),
         degraded=bool(response.get("degraded")), interpretation_mode=response.get("interpretation_mode"),

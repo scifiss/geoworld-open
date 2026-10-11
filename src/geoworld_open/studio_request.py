@@ -82,7 +82,8 @@ def render_build(api, submit, prompt, *, prepare=False, prepare_only=False):
             if isinstance(response.get("geospec"), dict):
                 turns = [*pending["turns"], prompt] if continuing else [prompt]
                 from geoworld_open.studio_context import commit_build
-                commit_build(response, turns)
+                commit_build(response, turns, source_action=decision.semantic_action
+                    if decision and decision.semantic_action and decision.semantic_action.kind == 'new_build' else None)
                 st.session_state["prepared_preview"] = response
                 st.session_state["studio_build_attempt_error"] = False
             elif st.session_state.get("prepared_preview") is None:

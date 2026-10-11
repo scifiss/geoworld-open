@@ -809,6 +809,10 @@ def display_result(api: GeoWorldBackendClient, options: DisplayOptions) -> None:
         from geoworld_open.studio_scientific import render_scientific_result
         render_scientific_result(api, job_id, result)
         return
+    if result.geospec is not None and result.intent in {'scenario_generation', 'build_model'}:
+        from geoworld_open.studio_legacy_model import render_legacy_model
+        render_legacy_model(api, job_id, result, options)
+        return
     submitted_prompt = st.session_state.get("last_submitted_prompt")
     if submitted_prompt:
         st.caption("Saved result for: " + str(submitted_prompt))

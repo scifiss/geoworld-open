@@ -1,6 +1,6 @@
 """PUBLIC_STANDARD: a bounded interpretation, not an executable agent plan."""
 from typing import Annotated, Any, Literal
-from geoworld_open.client.semantic_action import SemanticAction
+from geoworld_open.client.semantic_action import SemanticAction, NewBuild
 from geoworld_open.client.scientific_workflow import ScientificExperimentContext, ScientificWorkflowPreview
 
 from pydantic import Field, field_validator, model_validator
@@ -15,6 +15,8 @@ ContextAction = Literal["patch_build", "prepare_build", "run_prepared_build",
 
 
 class StudioBuildContext(ReferenceContract):
+    source_prompt: str | None = Field(default=None, min_length=1, max_length=8000)
+    source_action: NewBuild | None = None
     # The existing preview/job APIs validate this versioned GeoSpec payload.
     geospec: dict[str, Any]
     turns: list[Annotated[str, Field(min_length=1, max_length=8000)]] = Field(default_factory=list, max_length=20)
