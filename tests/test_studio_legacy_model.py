@@ -4,13 +4,24 @@ import pytest
 pytest.importorskip('streamlit')
 from streamlit.testing.v1 import AppTest
 from geoworld_open.client.models import JobResult,ArtifactInfo
-from geoworld_open.studio_legacy_model import field_catalog
+from geoworld_open.studio_legacy_model import artifact_named,field_catalog,manifest_rows
 
 
 def test_catalog_excludes_aggregate_and_scale_variants():
     names=['run/summary.png','run/avo_summary.png','run/scientific_vp.png','run/scientific_vp_separate.png','run/scientific_facies.png']
     catalog=field_catalog([ArtifactInfo(name=n,kind='image',media_type='image/png') for n in names])
     assert list(catalog)==['vp','facies']
+
+
+def test_evidence_artifacts_match_root_or_prefixed_names_and_both_manifest_schemas():
+    artifacts=[ArtifactInfo(name=name,kind='json',media_type='application/json') for name in
+        ['legacy-presentation.json','run/manifest.json']]
+    assert artifact_named(artifacts,'legacy-presentation.json')=='legacy-presentation.json'
+    assert artifact_named(artifacts,'manifest.json')=='run/manifest.json'
+    assert manifest_rows({'artifacts':[{'path':'vp.csv','bytes':12,'sha256':'a'*64}]})==[
+        {'Artifact':'vp.csv','Bytes':12,'SHA-256':'a'*64}]
+    assert manifest_rows({'files':[{'uri':'run/vp.csv','size_bytes':13,
+        'checksum':{'digest':'b'*64}}]})==[{'Artifact':'run/vp.csv','Bytes':13,'SHA-256':'b'*64}]
 
 
 def test_ordinary_workspace_defaults_and_order_without_duplicate_figures(monkeypatch):
@@ -47,11 +58,12 @@ def test_build_context_keeps_original_action_through_a_patch():
     def page(action):
         import streamlit as st
         from geoworld_open.studio_context import commit_build,task_context
-        commit_build({'geospec':{'geology':{'layers':[{'lithology':'sand','porosity':.2}]}},'valid':True},['original'],source_action=action)
+        commit_build({'geospec':{'geology':{'layers':[{'lithology':'sand','porosity':.2}]}},'valid':True},['original'],source_action=action,source_integrity='a'*64)
         commit_build({'geospec':{'geology':{'layers':[{'lithology':'sand','porosity':.25}]}},'valid':True},['original','change sand'])
         value=task_context()
         assert value.build.source_prompt=='original'
         assert value.build.source_action.layers[0].porosity==.2
+        assert value.build.source_integrity=='a'*64
         assert value.build.geospec['geology']['layers'][0]['porosity']==.25
     app=AppTest.from_function(page,args=(NewBuild(layers=[RequestedLayer(lithology='sand',porosity=.2)]),)).run()
     assert not app.exception

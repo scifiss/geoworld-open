@@ -13,8 +13,10 @@ are secondary; parameter origins absent from older records are not reconstructed
 Scientific data and all numerical downloads remain unchanged.
 
 `StudioBuildContext` optionally retains its original bounded typed `NewBuild` action
-and source prompt. The protected backend decides whether these can be replayed and
-revalidates them. The client does not perform scientific or semantic admission.
+and source prompt plus an opaque server integrity value. The protected backend
+authenticates the user/prompt/action tuple before replay and revalidates it. Unsigned
+older context or modified context uses normal semantic interpretation. The client
+does not perform scientific or semantic admission.
 Follow-up patches preserve this origin independently of the current edited GeoSpec.
 Existing sessions without the new optional origin fields remain compatible.
 

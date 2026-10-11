@@ -10,6 +10,24 @@ LABELS={'facies':'Geological facies','porosity':'Porosity','vp':'P-wave velocity
     'sand_probability':'Sand lithology indicator','co2_saturation':'CO₂ saturation','fault_damage_mask':'Fault damage mask'}
 
 
+def artifact_named(artifacts, basename):
+    return next((artifact.name for artifact in artifacts
+                 if PurePosixPath(artifact.name).name == basename), None)
+
+
+def manifest_rows(value):
+    inventory=value.get('artifacts',value.get('files',[]))
+    if not isinstance(inventory,list):
+        return []
+    rows=[]
+    for entry in inventory:
+        checksum=entry.get('checksum') or {}
+        rows.append({'Artifact':entry.get('uri') or entry.get('path') or 'Not recorded',
+            'Bytes':entry.get('size_bytes') if entry.get('size_bytes') is not None else entry.get('bytes'),
+            'SHA-256':checksum.get('digest') or entry.get('sha256') or 'Not recorded'})
+    return rows
+
+
 def field_catalog(artifacts):
     """Individual fields only: summary and AVO composites are downloadable extras."""
     result={}
@@ -25,7 +43,7 @@ def field_catalog(artifacts):
 def render_legacy_model(api, job_id, result, options):
     catalog=field_catalog(result.artifacts)
     record={}
-    presentation=next((a.name for a in result.artifacts if a.name.endswith('/legacy-presentation.json')),None)
+    presentation=artifact_named(result.artifacts,'legacy-presentation.json')
     if presentation:
         try:
             record=json.loads(api.get_artifact(job_id,presentation))
@@ -80,14 +98,13 @@ def render_legacy_model(api, job_id, result, options):
         st.markdown('**Provenance and artifact integrity**')
         provenance=result.provenance_summary
         st.dataframe([{'Record':key,'Value':str(value)} for key,value in provenance.items()],hide_index=True,width='stretch')
-        manifest=next((a for a in result.artifacts if a.name=='manifest.json'),None)
+        manifest=artifact_named(result.artifacts,'manifest.json')
         if manifest:
             try:
-                value=json.loads(api.get_artifact(job_id,manifest.name))
-                inventory=value.get('artifacts',value.get('files',[]))
-                if isinstance(inventory,list):
-                    st.dataframe([{'Artifact':entry.get('uri','Not recorded'),'Bytes':entry.get('size_bytes'),
-                        'SHA-256':entry.get('checksum',{}).get('digest','Not recorded')} for entry in inventory],hide_index=True,width='stretch')
+                value=json.loads(api.get_artifact(job_id,manifest))
+                rows=manifest_rows(value)
+                if rows:
+                    st.dataframe(rows,hide_index=True,width='stretch')
             except (ValueError,GeoWorldClientError) as exc:
                 st.warning(str(exc))
         st.caption('Recorded hashes identify saved artifacts. Displaying this table does not independently recompute file verification.')
