@@ -40,7 +40,7 @@ def field_catalog(artifacts):
     return result
 
 
-def render_legacy_model(api, job_id, result, options):
+def render_legacy_model(api, job_id, result, options, *, render_inputs=None, pending=False):
     catalog=field_catalog(result.artifacts)
     record={}
     presentation=artifact_named(result.artifacts,'legacy-presentation.json')
@@ -49,21 +49,26 @@ def render_legacy_model(api, job_id, result, options):
             record=json.loads(api.get_artifact(job_id,presentation))
         except (GeoWorldClientError,ValueError) as exc:
             st.warning('Recorded presentation metadata could not be read: '+str(exc))
-    st.subheader('Scientific Figures')
-    if record.get('parameters'):
-        st.markdown('**Inputs, assumptions and calculated properties**')
-        st.dataframe(record['parameters'],hide_index=True,width='stretch',height=280)
-    else:
-        st.info('This saved job predates the structured parameter table. Original GeoSpec and scenario remain available in downloads.')
-    figures,evidence,downloads=st.tabs(['Scientific Figures','Evidence / provenance','Advanced / downloads'])
+    from geoworld_open.studio_scientific_workspace import workspace_tabs, render_data_downloads, render_raw_artifacts
+    st.subheader('Scientific workspace')
+    st.caption(('Previous completed experiment · new inputs await execution · ' if pending else 'Completed numerical experiment · ')+job_id[:8])
+    model,figures,evidence,advanced=workspace_tabs(completed=not pending)
+    with model:
+        if render_inputs:
+            render_inputs()
+        elif record.get('parameters'):
+            st.dataframe(display_parameters(record['parameters']),hide_index=True,width='stretch')
+        else:
+            st.info('This saved job predates the structured input table. Its original specification is available under Advanced.')
     with figures:
         defaults=[key for key in ('facies','porosity','co2_saturation') if key in catalog]
         chosen=st.multiselect('Scientific fields · selection order is plot order',list(catalog),default=defaults,
             format_func=lambda key:LABELS[key],key='legacy_fields_'+job_id)
         st.caption('Suggested calculated fields: Vp, Vs, density, acoustic impedance, reflectivity and synthetic seismic.')
         available_scales=['Shared absolute m/s scale','Separate display scales'] if record.get('velocity_shared_limits_m_s') else ['Separate saved display scales']
-        scales=st.radio('Vp / Vs display scales',available_scales,horizontal=True,key='legacy_velocity_scale_'+job_id)
-        if 'vp' in chosen or 'vs' in chosen:
+        scales = 'Shared absolute m/s scale' if record.get('velocity_shared_limits_m_s') else 'Separate saved display scales'
+        if {'vp','vs'} <= set(chosen):
+            scales=st.radio('Vp / Vs display scales',available_scales,horizontal=True,key='legacy_velocity_scale_'+job_id)
             bounds=record.get('velocity_shared_limits_m_s')
             st.caption(('Shared absolute m/s scale: '+f'{bounds[0]:g}–{bounds[1]:g} m/s.' if bounds else 'Shared scale availability is recorded for new runs.')
                 if scales.startswith('Shared') else 'Separate display scales: compare absolute colorbar values, not colors across panels.')
@@ -77,7 +82,10 @@ def render_legacy_model(api, job_id, result, options):
             with columns[index%2]:
                 st.markdown('**'+LABELS[key]+'**')
                 try:
-                    st.image(api.get_artifact(job_id,name),width='stretch' if options.fit_figures else options.figure_px)
+                    if key == 'porosity' and artifact_named(result.artifacts, 'porosity.csv'):
+                        render_porosity_percent(api, job_id, result)
+                    else:
+                        st.image(api.get_artifact(job_id,name),width='stretch' if options.fit_figures else options.figure_px)
                 except GeoWorldClientError as exc:
                     st.warning(str(exc))
         if not catalog:
@@ -91,6 +99,7 @@ def render_legacy_model(api, job_id, result, options):
         for note in record.get('limitations',[]):
             st.caption(note)
     with evidence:
+        render_data_downloads(api, job_id, result.artifacts)
         for label,rows in [('Execution methods',record.get('methods',[])),('Numerical outputs and validation',record.get('outputs',[]))]:
             st.markdown('**'+label+'**')
             if rows:
@@ -108,21 +117,39 @@ def render_legacy_model(api, job_id, result, options):
             except (ValueError,GeoWorldClientError) as exc:
                 st.warning(str(exc))
         st.caption('Recorded hashes identify saved artifacts. Displaying this table does not independently recompute file verification.')
-    with downloads:
-        try:
-            st.download_button('Download complete run export',api.get_export(job_id),file_name=f'geoworld-run-{job_id}.html',mime='text/html')
-        except GeoWorldClientError as exc:
-            st.caption(str(exc))
-        # Fetch a selected artifact rather than every numerical CSV on each rerun.
-        names=[a.name for a in result.artifacts]
-        if names:
-            selected=st.selectbox('Saved artifact',names,key='legacy_download_'+job_id)
-            if st.button('Prepare selected download',key='legacy_prepare_download_'+job_id):
-                try:
-                    payload=api.get_artifact(job_id,selected)
-                    st.download_button('Download selected artifact',payload,file_name=PurePosixPath(selected).name,key='legacy_download_button_'+job_id)
-                except GeoWorldClientError as exc:
-                    st.warning(str(exc))
-        with st.expander('Raw GeoSpec and result metadata'):
-            st.json(result.geospec)
-            st.json(result.model_dump(mode='json'))
+    with advanced:
+        if st.button('Prepare complete run export',key='workspace_prepare_export_'+job_id):
+            try:
+                st.session_state['workspace_run_export']=(job_id,api.get_export(job_id))
+            except GeoWorldClientError as exc:
+                st.caption(str(exc))
+        saved=st.session_state.get('workspace_run_export')
+        if saved and saved[0]==job_id:
+            st.download_button('Download complete run export',saved[1],file_name=f'geoworld-run-{job_id}.html',mime='text/html',on_click='ignore')
+        render_raw_artifacts(api, job_id, result)
+
+
+def display_parameters(rows):
+    """Human display units only; recorded artifacts retain fractional porosity."""
+    output=[]
+    for row in rows:
+        row=dict(row)
+        if 'porosity' in row['Parameter'].casefold() and row['Value'].endswith(' fraction'):
+            row['Value']=f"{float(row['Value'].removesuffix(' fraction'))*100:g}%"
+        output.append(row)
+    return output
+
+
+def render_porosity_percent(api, job_id, result):
+    import io
+    import numpy as np
+    import plotly.graph_objects as go
+    values=np.loadtxt(io.BytesIO(api.get_artifact(job_id,artifact_named(result.artifacts,'porosity.csv'))),delimiter=',')
+    grid=result.geospec['grid']
+    figure=go.Figure(go.Heatmap(x=np.arange(values.shape[1])*grid['dx_m'],
+        y=np.arange(values.shape[0])*grid['dz_m'], z=values*100,
+        colorscale='Cividis', colorbar=dict(title='Porosity (%)')))
+    figure.update_layout(xaxis_title='Distance (m)',yaxis_title='Depth (m)',height=380,
+        margin=dict(l=55,r=20,t=20,b=50))
+    figure.update_yaxes(autorange='reversed')
+    st.plotly_chart(figure,width='stretch',key='ordinary_porosity_'+job_id)

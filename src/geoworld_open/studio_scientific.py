@@ -22,12 +22,20 @@ def render_scientific_request(api, submit, decision):
     seen = st.session_state.setdefault("scientific_submitted", [])
     run = False
     if not preview.automatic_execution and preview.preparation_id not in seen:
-        st.write("Prepared scientific workflow")
+        st.write("Validated scientific experiment")
         st.caption(" → ".join(preview.workflow))
-        with st.expander("Assumptions and scientific limits"):
-            for line in preview.assumptions + preview.limitations:
-                st.write(line)
-        run = st.button("Run scientific experiment", type="primary")
+        from geoworld_open.studio_scientific_workspace import workspace_tabs, assumption_rows
+        model, results, evidence, advanced = workspace_tabs()
+        with model:
+            st.table(assumption_rows(preview.assumptions))
+            st.caption('Independent benchmark inputs are bounded by its scientific contract; layer-table edits apply to ordinary GeoSpec models.')
+            run = st.button("Run simulation", type="primary")
+        with results:
+            st.info('No simulation has completed for this preparation.')
+        with evidence:
+            st.dataframe([{'Scientific limitation':line} for line in preview.limitations],hide_index=True,width='stretch')
+        with advanced:
+            st.json(preview.model_dump(mode='json'), expanded=False)
     if (preview.automatic_execution or run) and preview.preparation_id not in seen:
         # Claim before HTTP: widget rerenders cannot resubmit accepted work.
         # The backend independently deduplicates the owner/preparation pair.
@@ -59,26 +67,32 @@ def render_scientific_result(api, job_id, result):
     science = result.scientific
     st.subheader("Scientific workspace")
     st.caption(science.limitations[0] if science.limitations else "Scientific experiment · inspect source provenance before reuse")
-    overview, models, evidence, details = st.tabs([
-        "Overview", "Models & Figures", "Scientific Evidence / Provenance", "Complete Details"])
-    with overview:
+    from geoworld_open.studio_scientific_workspace import workspace_tabs, assumption_rows, render_data_downloads, render_raw_artifacts
+    model, models, evidence, details = workspace_tabs(completed=True)
+    try:
+        section = json.loads(api.get_artifact(job_id, "scientific-section.json"))
+        from geoworld_open.studio_fields import DEFAULT_FIELDS, compose_fields, field_label
+        defaults = [name for name in DEFAULT_FIELDS if name in section['fields']]
+        if not defaults:
+            defaults = list(section['fields'])[:4]
+    except GeoWorldClientError as exc:
+        st.warning(str(exc))
+    with model:
+        if 'section' in locals():
+            background = next((name for name in ('sand_probability','porosity') if name in section['fields']), None)
+            if background:
+                st.plotly_chart(compose_fields(section, [background], identity=job_id+'inputs'),width='stretch',key='scientific_model_geometry')
+        st.caption('Independent heterogeneous benchmark · inputs are fixed by its bounded scientific contract. Use the Assistant to prepare a supported new experiment.')
         try:
-            section = json.loads(api.get_artifact(job_id, "scientific-section.json"))
-            from geoworld_open.studio_fields import DEFAULT_FIELDS, compose_fields, field_label
-            defaults = [name for name in DEFAULT_FIELDS if name in section['fields']]
-            if not defaults:
-                defaults = list(section['fields'])[:4]
-            st.plotly_chart(compose_fields(section, defaults, identity=job_id+'overview'),
-                use_container_width=True, key="scientific_section_plot")
+            inputs = json.loads(api.get_artifact(job_id,'validated-inputs.json'))
+            st.dataframe([{'Parameter':label,'Value':str(inputs.get(key,'Not recorded'))} for key,label in
+                [('seeds','Realization seed'),('saturations','CO₂ saturation states (fraction)')]],hide_index=True,width='stretch')
         except GeoWorldClientError as exc:
             st.warning(str(exc))
-        if science.metrics:
-            labels = {'saturation': 'CO₂ saturation (fraction)',
-                'max_abs_delta_vp_m_s': 'Maximum |ΔVp| (m/s)',
-                'max_abs_delta_far': 'Maximum |Δfar PP| (dimensionless)'}
-            rows = [{label: row[key] for key, label in labels.items() if key in row} for row in science.metrics]
-            st.dataframe(rows, hide_index=True, use_container_width=True)
+        st.markdown('**Recorded assumptions**')
+        st.table(assumption_rows(result.assumptions))
     with models:
+        st.caption('Completed numerical experiment · '+job_id[:8])
         if 'section' in locals():
             names = list(section['fields'])
             if st.session_state.get('studio_scientific_view_job') != job_id:
@@ -117,27 +131,11 @@ def render_scientific_result(api, job_id, result):
                 if saved and saved[0]==signature:
                     st.download_button('Download selected figure (PNG)',saved[1],file_name='scientific-selected.png')
                 st.caption('Saved fields only · one to four panels · PNG up to 200 dpi · no new scientific computation')
-        names = [science.model_artifact, science.evidence_artifact]
-        available = {item.name for item in result.artifacts}
-        names.extend(name for name in ("scientific-overview.svg", "scientific-overview.pdf") if name in available)
-        for name in names:
-            label = 'Numerical model (NPZ)' if name==science.model_artifact else 'Numerical comparison (NPZ)' if name==science.evidence_artifact else 'Optional scientific figure'
-            st.download_button(label, api.get_artifact(job_id, name), file_name=name, key="scientific_download_" + name)
     with evidence:
+        render_data_downloads(api,job_id,result.artifacts)
         render_evidence_tables(api, job_id, result)
     with details:
-        st.dataframe([{'Assumption': line} for line in result.assumptions],hide_index=True,use_container_width=True)
-        st.dataframe([{'Scientific limitation': line} for line in science.limitations],hide_index=True,use_container_width=True)
-        with st.expander("Advanced / raw evidence and downloads"):
-            for name in ("interaction.json", "validated-inputs.json", "workflow-plan.json", "scientific-qc.json", "trace.json", "world.json", "verification.json", science.manifest_artifact):
-                try:
-                    content = api.get_artifact(job_id, name)
-                    st.json(json.loads(content),expanded=False)
-                    st.download_button('Download raw evidence',content,file_name=name,key='scientific_evidence_'+name)
-                except GeoWorldClientError:
-                    st.caption('This evidence record is unavailable.')
-            for item in result.artifacts:
-                st.caption(item.name)
+        render_raw_artifacts(api,job_id,result)
 
 
 def render_evidence_tables(api, job_id, result):
@@ -149,10 +147,8 @@ def render_evidence_tables(api, job_id, result):
             return {}
     plan, inputs, qc, world, verification = [record(name) for name in (
         'workflow-plan.json','validated-inputs.json','scientific-qc.json','world.json','verification.json')]
-    st.markdown('**Scientific assumptions and limitations**')
-    st.dataframe([{'Type':kind,'Recorded statement':line} for kind,lines in (
-        ('Assumption',plan.get('assumptions',result.assumptions)),('Limitation',result.scientific.limitations))
-        for line in lines],hide_index=True,use_container_width=True)
+    st.markdown('**Scientific limitations**')
+    st.dataframe([{'Recorded limitation':line} for line in result.scientific.limitations],hide_index=True,width='stretch')
     st.markdown('**Selected scientific capabilities · execution order**')
     contracts = {row['contract']['capability_id']:row['contract'] for row in plan.get('contracts',[]) if 'contract' in row}
     st.dataframe([{'Order':i+1,'Method':contracts.get(name,{}).get('law_name',name),

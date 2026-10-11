@@ -89,7 +89,8 @@ def test_one_message_model_runs_once_and_shows_result_before_edit(app, monkeypat
     assert len(previews) == len(jobs) == 1
     assert jobs[0].geospec == spec
     assert app.get("image")
-    assert any(item.label == "Edit model" for item in app.expander)
+    assert [t.label for t in app.tabs] == ['Model & Inputs','Scientific Results','Evidence & Data','Advanced']
+    assert not any(item.label in {'Prepare model','Run simulation'} for item in app.button)
     assert not any("Assumptions before execution" in item["content"]
                    for item in app.session_state["assistant_history"])
     assert sum("Results ready" in item["content"] for item in app.session_state["assistant_history"]) == 1
@@ -161,7 +162,7 @@ def test_shared_composer_moves_between_question_seismic_and_model_and_keeps_hist
     assert len(app.get("plotly_chart")) == 1
     assert not any(item.label == "Dataset" for item in app.selectbox)
     send(app, "Build shale and sand")
-    assert any(item.value == "Prepared model" for item in app.subheader)
+    assert any('Scientific workspace' in item.value for item in app.subheader)
     assert any("Impedance is density" in item.value for item in app.markdown)
     assert any("Applied deterministic section" in item.value for item in app.markdown)
     send(app, "Inspect my uploaded LAS logs")
@@ -213,7 +214,7 @@ def test_exact_model_followups_accumulate_in_session_without_qa(app, monkeypatch
     assert previews[0] == {"prompt": first}
     assert previews[1] == {"geospec": pending["geospec"],
                            "follow_up": second, "prior_turns": [first]}
-    assert button(app, "Run model").disabled
+    assert button(app, "Run simulation").disabled
     assert any("through-going fault or omit" in item["content"]
                for item in app.session_state["assistant_history"] if item["role"] == "assistant")
 
@@ -281,7 +282,7 @@ def test_three_turn_limestone_request_keeps_explicit_layer_and_porosity(app, mon
     assert pending["geospec"]["geology"]["layers"][1]["porosity"] == .3
     assert previews[2]["prior_turns"] == turns[:2]
     assert previews[2]["follow_up"] == turns[2]
-    assert button(app, "Run model").disabled
+    assert button(app, "Run simulation").disabled
 
 
 def test_sand_co2_and_porous_carbonate_followups_keep_pending_spec(app, monkeypatch):
@@ -580,7 +581,7 @@ def test_question_detour_keeps_prepared_build_and_no_reprepare(app, monkeypatch)
     before = app.session_state["studio_task_context"].build.model_dump()
     send(app, "What is acoustic impedance?")
     assert app.session_state["studio_task_context"].build.model_dump() == before
-    assert any(item.value == "Prepared model" for item in app.subheader)
+    assert any('Scientific workspace' in item.value for item in app.subheader)
     assert len(requests) == 1
     app.run(timeout=20)
     assert len(requests) == 1
@@ -655,7 +656,7 @@ def test_typed_build_immediate_preview_edit_and_exact_run(app, monkeypatch):
     monkeypatch.setattr(GeoWorldBackendClient,'get_job',lambda *_:JobStatusResponse(job_id='a'*32,status='succeeded',progress='done',result=JobResult(intent='build_model',reason='test',answer='Built exact reviewed model.')))
     app.run(timeout=20)
     send(app,'Build a formation with shale, sand, carbonate, and shale layers. Sand has porosity of 0.2, and carbonate 0.3.')
-    assert len(app.get('plotly_chart'))==1 and len(app.dataframe)==2
+    assert len(app.get('plotly_chart'))==1 and len(app.dataframe)==1 and app.table
     assert not jobs
     send(app,'change carbonate porosity to 0.25')
     assert len(app.get('plotly_chart'))==1
@@ -663,7 +664,7 @@ def test_typed_build_immediate_preview_edit_and_exact_run(app, monkeypatch):
     import hashlib,json
     current=app.session_state['studio_task_context'].build.geospec
     revision=hashlib.sha256(json.dumps(current,sort_keys=True).encode()).hexdigest()[:12]
-    app.session_state['model_layer_editor_'+revision]={'edited_rows':{1:{'porosity':.22}},'added_rows':[],'deleted_rows':[]}
+    app.session_state['model_layer_editor_'+revision]={'edited_rows':{1:{'Porosity (%)':22.}},'added_rows':[],'deleted_rows':[]}
     button(app,'Apply layer edits').click().run(timeout=20)
     assert not app.exception
     assert app.session_state['studio_task_context'].build.geospec['geology']['layers'][1]['porosity']==.22

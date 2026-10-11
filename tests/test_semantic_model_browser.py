@@ -35,6 +35,9 @@ def test_prepared_geometry_edit_run_and_responsive_workspace(tmp_path, monkeypat
                 page.get_by_role('button',name='Send',exact=True).click()
                 page.wait_for_function("document.querySelector('textarea').value === ''")
                 page.locator('.js-plotly-plot').wait_for()
+                from geoworld_open.workspace_browser import edit_porosity, select_workspace, select_fields, settled
+                edit_porosity(page,row=1,percent=22.)
+                page.get_by_text('Fixture submissions: 0',exact=True).wait_for()
                 page.get_by_test_id('stSidebar').hover()
                 page.get_by_test_id('stSidebarCollapseButton').get_by_role('button').click()
                 page.wait_for_function("document.querySelector('[data-testid=stSidebar]').getBoundingClientRect().right <= 1")
@@ -42,9 +45,21 @@ def test_prepared_geometry_edit_run_and_responsive_workspace(tmp_path, monkeypat
                 page.set_viewport_size({'width':430,'height':2600})
                 page.wait_for_function("""() => { const chat = document.querySelector('.st-key-assistant_panel'); const plot = document.querySelector('.js-plotly-plot'); return chat && plot && chat.getBoundingClientRect().top > plot.getBoundingClientRect().top; }""")
                 page.screenshot(path=str(artifacts/'model-preview-narrow.png'),full_page=True)
-                box.fill('run it');page.get_by_role('button',name='Send',exact=True).click()
+                page.set_viewport_size({'width':1440,'height':1100})
+                page.get_by_role('button',name='Run simulation',exact=True).click()
                 page.get_by_text('Fixture submissions: 1',exact=True).wait_for()
                 page.get_by_text('Executed carbonate porosity: 0.25',exact=True).wait_for()
+                select_workspace(page,'Scientific Results')
+                select_fields(page,['P-wave velocity (Vp)','S-wave velocity (Vs)'])
+                select_workspace(page,'Evidence & Data')
+                page.get_by_role('button',name='Prepare data download',exact=True).click()
+                settled(page)
+                with page.expect_download() as download:
+                    page.get_by_role('button',name='Download numerical data',exact=True).click()
+                download.value.save_as(artifacts/'downloaded-data.csv')
+                assert (artifacts/'downloaded-data.csv').read_bytes().startswith(b'.08')
+                page.get_by_text('Fixture submissions: 1',exact=True).wait_for()
+                assert page.get_by_role('button',name='Run simulation',exact=True).count()==0
                 assert page.locator('[data-testid="stException"]').count()==0
                 browser.close()
         finally:
