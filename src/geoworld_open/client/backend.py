@@ -63,7 +63,7 @@ class UrllibTransport:
         except HTTPError as exc:
             return int(exc.code), exc.read()
         except (URLError, TimeoutError, OSError) as exc:
-            raise GeoWorldClientError("GeoWorld backend is unavailable") from exc
+            raise GeoWorldClientError("Connection to GeoWorld backend is unavailable. The job outcome is unconfirmed; reconnect before resubmitting.") from exc
 
 
 def backend_url_from_environment(environ: Mapping[str, str] | None = None) -> str | None:
@@ -458,6 +458,8 @@ class GeoWorldBackendClient:
 
     @staticmethod
     def _error_message(status: int, body: bytes) -> str:
+        if status in {502, 503, 504}:
+            return f'Connection to GeoWorld backend is unavailable (HTTP {status}). This does not confirm a scientific failure. Reconnect to check the existing job before resubmitting.'
         detail = ""
         try:
             decoded = json.loads(body.decode("utf-8"))
