@@ -19,4 +19,6 @@ GEOWORLD_BROWSER_TESTS=1 python -m pytest -q tests/test_semantic_model_browser.p
 
 `geoworld_open.workspace_browser` supplies reusable DOM helpers for atomic edits, navigation, selection and settled rerenders. The authenticated private acceptance runner exercises these controls against the normal protected APIs and records full-page screenshots, numerical hashes and cgroup memory. Browser fixtures are separate from real-provider acceptance.
 
+The existing browser CI job runs the deterministic prepared-model journey on every push/PR and retains its screenshots as an artifact; ordinary CI does not call an external provider.
+
 Large tables require horizontal scrolling on narrow screens; the four navigation tabs wrap. ZIP packages deliberately exclude figure files; saved figure/export downloads remain available through their existing result/Advanced controls.
