@@ -349,6 +349,8 @@ def poll_job(api: GeoWorldBackendClient, job_id: str, *, actual_stages=False, re
 
 
 def submit_and_wait(api: GeoWorldBackendClient, request: JobCreateRequest) -> None:
+    if st.session_state.get('studio_interrupted_submission'):
+        raise GeoWorldClientError('Reconnect to the already submitted job before starting another job. No new submission was sent.')
     previous_result = {key: st.session_state[key] for key in RESULT_STATE_KEYS if key in st.session_state}
     created = api.submit_job(request)
     clear_last_result()
@@ -377,6 +379,10 @@ def submit_and_wait(api: GeoWorldBackendClient, request: JobCreateRequest) -> No
                                        if request.mode_hint in {"deepwave_reference", "bounded_fwi", "configurable_marmousi_fwi"} else poll_job(api, created.job_id, actual_stages=True)
                                        if request.mode_hint in {"model_rtm", "model_forward"} else poll_job(api, created.job_id))
     except GeoWorldClientError:
+        st.session_state['studio_interrupted_submission'] = {
+            'job_id': created.job_id, 'prompt': request.prompt,
+            'mode_hint': request.mode_hint, 'correlation_id': created.correlation_id,
+        }
         if previous_result.get("last_job") is not None:
             clear_last_result()
             st.session_state.update(previous_result)
@@ -1224,6 +1230,14 @@ def render_workspace(api: GeoWorldBackendClient) -> None:
     from geoworld_open.studio_assistant import render_assistant_studio
 
     def active(client):
+        from geoworld_open.studio_connection import reconnect_job
+        recovered = reconnect_job(client)
+        if recovered:
+            pending, recovered_job = recovered
+            clear_last_result()
+            st.session_state.update(last_job=recovered_job, last_job_id=recovered_job.job_id,
+                last_submitted_prompt=pending['prompt'], last_submitted_mode_hint=pending['mode_hint'],
+                last_correlation_id=pending['correlation_id'], last_result_source='submitted')
         from geoworld_open.studio_context import task_context
         context = task_context()
         decision = st.session_state.get("studio_decision")
