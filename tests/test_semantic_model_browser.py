@@ -64,7 +64,8 @@ def test_prepared_geometry_edit_run_and_responsive_workspace(tmp_path, monkeypat
                     })"""),indent=2))
                     raise
                 page.get_by_text('Fixture submissions: 0',exact=True).wait_for()
-                (artifacts/'edited-grid-state.json').write_text(json.dumps(page.get_by_test_id('stForm').evaluate("""form =>
+                editor_form=page.get_by_test_id('stForm').filter(has=page.get_by_role('button',name='Apply layer edits',exact=True))
+                (artifacts/'edited-grid-state.json').write_text(json.dumps(editor_form.evaluate("""form =>
                     Array.from(form.querySelectorAll('[role=gridcell]')).map(cell=>({
                         cell:cell.dataset.testid,value:cell.textContent,readOnly:cell.getAttribute('aria-readonly')
                     }))"""),indent=2))
