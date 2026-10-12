@@ -19,6 +19,11 @@ def test_prepared_geometry_edit_run_and_responsive_workspace(tmp_path, monkeypat
         height=page.get_by_test_id('stMain').evaluate('(element)=>element.scrollHeight')
         page.set_viewport_size({'width':original['width'],'height':max(original['height'],height+100)})
         page.get_by_test_id('stMain').evaluate('(element)=>{element.scrollTop=0}')
+        # Responsive CSS changes before Plotly's asynchronous resize completes.
+        # Capture the finished layout, not the temporarily clipped old canvas.
+        page.wait_for_function("""() => Array.from(document.querySelectorAll('.js-plotly-plot'))
+            .filter(plot=>plot.getClientRects().length && plot.getBoundingClientRect().width>0)
+            .every(plot=>plot._fullLayout && Math.abs(plot._fullLayout.width-plot.getBoundingClientRect().width)<2)""")
         page.screenshot(path=str(artifacts/(name+'.png')),full_page=True)
         page.set_viewport_size(original)
     with socket.socket() as sock:

@@ -10,6 +10,8 @@ The complete offline journey runs at normal and 4× throttled browser CPU speeds
 
 Full-page captures cover the original preview, carbonate follow-up, sand edit, narrow layout, completed results, selected fields and downloads. Review found that the fixture had reused an unrelated dashboard image for every field; it now renders clearly labeled eight-cell fixture fields, aligned physical coordinates and truthful shared velocity limits. Wide plots/units and single execution controls are readable. Narrow input tables retain their existing horizontal scrolling; chat remains below the workspace. Conversation history remains a deliberately scrolling panel.
 
+Review of the retained CI images also caught a narrow capture taken between CSS reflow and Plotly's resize. Captures now wait for the rendered Plotly layout width to match its container; this preserves the actual responsive layout without masking it with a timed sleep.
+
 Run the same checks:
 
 ```sh
