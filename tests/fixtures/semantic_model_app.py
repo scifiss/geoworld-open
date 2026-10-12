@@ -42,7 +42,26 @@ def result(*_):
 
 def artifact(_self,job_id,name):
     if name.endswith('.png'):
-        return (Path(__file__).parents[2]/'docs/assets/flagship_world_demo.png').read_bytes()
+        # Transparent fixture fields, not an unrelated demonstration dashboard.
+        import io
+        import numpy as np
+        from matplotlib.figure import Figure
+        spec=st.session_state['fixture_submitted_spec']
+        field=name.removeprefix('scientific_').removesuffix('.png')
+        values={'facies':[0,1,2,0],
+            'porosity':[layer.get('porosity',.08) for layer in spec['geology']['layers']],
+            'vp':[3000]*4,'vs':[1500]*4}[field]
+        units={'facies':'category','porosity':'fraction','vp':'m/s','vs':'m/s'}
+        figure=Figure(figsize=(6,3),layout='constrained')
+        axis=figure.subplots()
+        limits={'vmin':1000,'vmax':5000} if field in {'vp','vs'} else {}
+        image=axis.imshow(np.repeat(np.array(values)[:,None],2,axis=1),extent=(-500,1500,700,-100),aspect='auto',**limits)
+        axis.set(xlabel='Distance (m)',ylabel='Depth (m)',title=f'{field} · offline fixture')
+        bar=figure.colorbar(image,ax=axis,label=units[field])
+        if field=='facies':
+            bar.set_ticks([0,1,2],labels=['shale','sand','carbonate'])
+        output=io.BytesIO();figure.savefig(output,format='png',dpi=100)
+        return output.getvalue()
     if name.endswith('.csv'):
         return b'.08,.08\n.22,.22\n.25,.25\n.08,.08\n'
     return json.dumps({'parameters':[{'Parameter':'Grid','Value':'2 x 4','Source':'Fixture'}],
@@ -55,3 +74,4 @@ runpy.run_path(str(Path(__file__).parents[2]/'apps/studio_streamlit.py'),run_nam
 st.caption('Fixture submissions: '+str(st.session_state.get('fixture_submissions',0)))
 if st.session_state.get('fixture_submitted_spec'):
     st.caption('Executed carbonate porosity: '+str(st.session_state['fixture_submitted_spec']['geology']['layers'][2]['porosity']))
+    st.caption('Executed sand porosity: '+str(st.session_state['fixture_submitted_spec']['geology']['layers'][1]['porosity']))
