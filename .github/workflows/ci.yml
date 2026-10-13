@@ -40,3 +40,15 @@ jobs:
         env:
           GEOWORLD_BROWSER_TESTS: "1"
         run: python -m pytest -q -s tests/test_marmousi_browser.py
+      - name: Verify scientific workspace edit, execution and downloads
+        env:
+          GEOWORLD_BROWSER_TESTS: "1"
+          GEOWORLD_BROWSER_ARTIFACTS_DIR: browser-acceptance
+        run: python -m pytest -q -s tests/test_semantic_model_browser.py
+      - name: Retain scientific workspace screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scientific-workspace-browser
+          path: browser-acceptance
+          if-no-files-found: ignore

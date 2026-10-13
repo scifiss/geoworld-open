@@ -50,7 +50,7 @@ def test_single_assistant_runs_science_once_clears_composer_and_preserves_select
     assert len(calls)==1 and not app.exception
     app.run(timeout=20)
     assert len(calls)==1
-    assert [t.label for t in app.tabs]==['Overview','Models & Figures','Scientific Evidence / Provenance','Complete Details']
+    assert [t.label for t in app.tabs]==['Model & Inputs','Scientific Results','Evidence & Data','Advanced']
 
 
 def test_provider_failure_preserves_scientific_result_and_context(app,monkeypatch):

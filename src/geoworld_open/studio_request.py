@@ -32,10 +32,8 @@ def seismic_workspace_command(prompt: str) -> str | None:
 
 
 def render_build(api, submit, prompt, *, prepare=False, prepare_only=False):
-    st.subheader("Prepared model")
-    clicked = st.button("Prepare model")
     decision = st.session_state.get("studio_decision")
-    if clicked or (prepare and (decision is None or decision.action != "run_prepared_build")):
+    if prepare and (decision is None or decision.action != "run_prepared_build"):
         st.session_state["studio_build_attempt_error"] = True
         from geoworld_open.studio_context import task_context
         build = task_context().build
@@ -55,10 +53,6 @@ def render_build(api, submit, prompt, *, prepare=False, prepare_only=False):
                 response = api.preview_geospec(
                     geospec=pending["geospec"], follow_up=prompt,
                     prior_turns=pending["turns"],
-                )
-            elif clicked and pending and pending["turns"][-1] == prompt:
-                response = api.preview_geospec(
-                    geospec=pending["geospec"], prior_turns=pending["turns"],
                 )
             else:
                 response = api.preview_geospec(prompt=prompt)
@@ -101,39 +95,26 @@ def render_build(api, submit, prompt, *, prepare=False, prepare_only=False):
                         st.session_state["assistant_notice"] = errors[0]
                         st.rerun()
             else:
-                if not (decision and decision.semantic_action and
+                retained = st.session_state.get('studio_build_completed_job')
+                unchanged_completed = bool(retained and retained.result and
+                    retained.result.geospec == response.get('geospec') and decision and
+                    decision.action in {'prepare_build', 'run_prepared_build', 'patch_build'})
+                if not unchanged_completed and not (decision and decision.semantic_action and
                         decision.semantic_action.kind in {"new_build", "patch_build"} and
                         small_model_can_run(response, prepare_only=prepare_only)):
                     append_message("assistant", "Model prepared. Review its assumptions and run when ready.")
     preview = st.session_state.get("prepared_preview")
     if not preview:
         return
-    from geoworld_open.studio_model_preview import render_prepared_geometry
-    render_prepared_geometry(api, preview)
-    st.caption(preparation_model_line(preview))
     from geoworld_open.studio_context import task_context
     current = task_context()
     valid = bool(current.build and current.build.valid
                  and not st.session_state.get("studio_build_attempt_error"))
     if not valid:
         st.warning("No valid model prepared. Review the interpretation and try again.")
-    with st.expander("Prepared model / assumptions", expanded=False):
-        st.write("**Assumptions before execution**")
-        for assumption in list(dict.fromkeys(
-            preview.get("assumptions") or (preview.get("geospec") or {}).get("assumptions") or []
-        )):
-            st.write(assumption)
-        for issue in preview.get("issues") or []:
-            st.write(issue.get("message", "") if isinstance(issue, dict) else str(issue))
-        if preview.get("diagnostic"):
-            st.caption(preview["diagnostic"])
-    with st.expander("Advanced: validated model specification"):
-        st.json(preview.get("geospec"))
     confirmed = not preview.get("confirmation_required", False)
     if not confirmed:
         confirmed = st.checkbox("I reviewed this limited deterministic interpretation and want to run it", key="unified_fallback_confirmed")
-    if prepare_only:
-        st.info("Prepared only, as requested. Submit a new request to run it.")
     from geoworld_open.studio_context import task_context
     current = task_context()
     if current.build and not st.session_state.get("studio_build_attempt_error"):
@@ -141,30 +122,79 @@ def render_build(api, submit, prompt, *, prepare=False, prepare_only=False):
             "execution_allowed": valid and confirmed,
         })
     requested_run = bool(prepare and decision and decision.action == "run_prepared_build")
-    clicked_run = st.button("Run model", disabled=not valid or not confirmed or prepare_only)
+    job = st.session_state.get('last_job')
+    if not (job and job.status == 'succeeded' and job.result and job.result.geospec
+            and job.result.intent in {'scenario_generation','build_model'}):
+        job = st.session_state.get('studio_build_completed_job')
+    completed = bool(job and job.status == 'succeeded' and job.result and job.result.geospec
+                     and job.result.intent in {'scenario_generation','build_model'})
+    same_inputs = bool(completed and current.build and job.result.geospec == current.build.geospec
+        and (st.session_state.get('studio_model_completed_revision') ==
+            (st.session_state.get('studio_request_serial',0), st.session_state.get('studio_auto_edit_serial',0))
+            or decision and decision.action in {'prepare_build','run_prepared_build','patch_build'}))
     serial = st.session_state.get("studio_request_serial", 0)
     edit_serial = st.session_state.get("studio_auto_edit_serial", 0)
     auto_key = (serial, edit_serial)
     auto_requested = bool(
         decision and decision.semantic_action and
         decision.semantic_action.kind in {"new_build", "patch_build"} and
-        (prepare or edit_serial) and small_model_can_run(preview, prepare_only=prepare_only) and
+        prepare and not edit_serial and small_model_can_run(preview, prepare_only=prepare_only) and
         st.session_state.get("studio_auto_submitted") != auto_key
     )
-    if (clicked_run or requested_run or auto_requested) and valid and confirmed and not prepare_only:
-        if auto_requested:
-            # Mark before the network call; a widget rerun cannot duplicate it.
-            st.session_state["studio_auto_submitted"] = auto_key
+    def run():
+        st.session_state['studio_auto_submitted'] = auto_key
         try:
             submit(api, JobCreateRequest(prompt="\n".join(current.build.turns) if requested_run and current.build else prompt, mode_hint="build_model", geospec=current.build.geospec,
                 interpretation_mode=current.build.interpretation_mode or preview.get("parser_mode"),
                 interpretation_degraded=current.build.degraded, degraded_fallback_confirmed=confirmed))
-            if auto_requested:
+            finished = st.session_state.get('last_job')
+            if finished and finished.status == 'succeeded' and finished.result and finished.result.geospec == current.build.geospec:
+                st.session_state['studio_model_completed_revision'] = (serial, edit_serial)
+                st.session_state['studio_build_completed_job'] = finished
                 st.rerun()
         except GeoWorldClientError as exc:
             st.error(str(exc))
             from geoworld_open.studio_assistant import append_message
             append_message("assistant", str(exc))
+    if (requested_run or auto_requested) and valid and confirmed and not prepare_only:
+        run()
+        return
+    from geoworld_open.studio_scientific_workspace import workspace_tabs, assumption_rows
+    def inputs():
+        from geoworld_open.studio_model_preview import render_prepared_geometry
+        render_prepared_geometry(api, preview)
+        assumptions = (preview.get('model_preview') or {}).get('assumptions_table')
+        if assumptions is None:
+            assumptions = assumption_rows(preview.get('assumptions') or preview.get('geospec',{}).get('assumptions',[]))
+        if assumptions:
+            st.markdown('**Recorded assumptions**')
+            st.table(assumptions)
+        if not same_inputs:
+            st.info('Edited inputs describe a new experiment; saved results belong to the previous inputs.' if completed else 'Model prepared and validated. Run simulation to calculate results.')
+            if st.button('Run simulation', type='primary', disabled=not valid or not confirmed):
+                run()
+        else:
+            st.caption('Completed experiment · apply changed inputs to prepare a new experiment.')
+    if completed:
+        from geoworld_open.studio_legacy_model import render_legacy_model
+        from geoworld_open.studio_presentation import DisplayOptions
+        render_legacy_model(api, job.job_id, job.result, DisplayOptions(
+            fit_figures=st.session_state.get('display_fit_figures',True),
+            figure_px=st.session_state.get('display_figure_px',880)),
+                            render_inputs=inputs, pending=not same_inputs)
+    else:
+        st.subheader('Scientific workspace · prepared model')
+        model, results, evidence, advanced = workspace_tabs()
+        with model:
+            inputs()
+        with results:
+            st.info('No simulation has completed for these inputs.')
+        with evidence:
+            st.caption('Numerical checks and downloads appear after execution.')
+        with advanced:
+            st.caption(preparation_model_line(preview))
+            st.json(preview.get('geospec'), expanded=False)
+            st.json({'full_preparation_assumptions':preview.get('assumptions',[])},expanded=False)
 
 
 def submit_request(api, prompt):
@@ -241,7 +271,7 @@ def render_request(api, submit, render_las):
     decision = st.session_state.get("studio_decision")
     if decision is None or not hasattr(decision, "route"):
         return
-    if decision.llm:
+    if decision.llm and decision.route not in {'build_model','scientific_workflow'}:
         st.caption(execution_model_line(decision.llm, purpose="Request understanding"))
     if decision.route == "blocked":
         st.warning(decision.message)
@@ -253,6 +283,11 @@ def render_request(api, submit, render_las):
     if getattr(decision, "evidence_assessment", None):
         # The single Assistant already contains this answer. Keep the active
         # numerical workspace separate from the latest conversational response.
+        return
+    if decision.route == 'build_model':
+        prepare = not st.session_state.get('studio_prepare_attempted', False)
+        st.session_state['studio_prepare_attempted'] = True
+        render_build(api, submit, prompt, prepare=prepare, prepare_only=decision.interpretation.prepare_only)
         return
     st.info(decision.message)
     prepare_only = decision.interpretation.prepare_only

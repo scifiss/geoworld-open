@@ -102,6 +102,9 @@ def client(token: str | None = None) -> GeoWorldBackendClient:
 
 
 def clear_session() -> None:
+    for key in ('studio_build_completed_job','studio_model_completed_revision','workspace_data_package',
+                'workspace_data_download','workspace_raw_record','workspace_run_export'):
+        st.session_state.pop(key,None)
     clear_last_result()
     for key in list(st.session_state):
         if key.startswith(("marmousi_", "studio_", "unified_", "assistant_", "scientific_", "seismic_", "horizon_")):
@@ -1270,19 +1273,12 @@ def render_workspace(api: GeoWorldBackendClient) -> None:
             from geoworld_open.studio_request import render_request
             decision = st.session_state.get("studio_decision")
             job = st.session_state.get("last_job")
-            finished_model = bool(decision and getattr(decision, "route", None) == "build_model" and job and
-                                  job.status == "succeeded" and job.result and job.result.geospec and
-                                  st.session_state.get("last_submitted_prompt") ==
-                                  st.session_state.get("studio_request_prompt"))
-            if finished_model:
-                with st.container(key="studio_results"):
-                    display_result(client, display_options)
-                with st.expander("Edit model", expanded=False):
-                    with st.container(key="studio_workflow"):
-                        render_request(client, submit_and_wait, render_las_workspace)
-            else:
-                with st.container(key="studio_workflow"):
-                    render_request(client, submit_and_wait, render_las_workspace)
+            with st.container(key="studio_workflow"):
+                render_request(client, submit_and_wait, render_las_workspace)
+            # A prepared ordinary model owns its workspace, including the last
+            # completed result. Do not render a second result screen below it.
+            route = decision.get('route') if isinstance(decision, dict) else getattr(decision, 'route', None)
+            if not (route == 'build_model' and st.session_state.get('prepared_preview')):
                 with st.container(key="studio_results"):
                     display_result(client, display_options)
             if not st.session_state.get("studio_decision") and not st.session_state.get("last_job_id"):
@@ -1393,7 +1389,7 @@ with st.sidebar:
             "and fit the column by default. Turn off Fit figures to column to choose a smaller width."
         )
 
-st.title("🌍 GeoWorld Studio")
+st.title("GeoWorld Studio")
 st.caption(
     "Talk to GeoWorld. Your data, views and results stay in context as you work."
 )

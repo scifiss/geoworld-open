@@ -45,11 +45,13 @@ def test_ordinary_workspace_defaults_and_order_without_duplicate_figures(monkeyp
         render_legacy_model(api,'j',result,SimpleNamespace(fit_figures=True,figure_px=700))
     app=AppTest.from_function(page,args=(Client(),result)).run(timeout=15)
     assert not app.exception
-    assert [t.label for t in app.tabs]==['Scientific Figures','Evidence / provenance','Advanced / downloads']
+    assert [t.label for t in app.tabs]==['Model & Inputs','Scientific Results','Evidence & Data','Advanced']
+    assert not app.radio
     assert fetched.count('run/scientific_facies.png')==1 and fetched.count('run/scientific_porosity.png')==1
     assert 'run/summary.png' not in fetched and 'run/avo_summary.png' not in fetched
     fetched.clear()
     app.multiselect[0].set_value(['vs','vp']).run()
+    assert [r.label for r in app.radio] == ['Vp / Vs display scales']
     assert fetched.index('run/scientific_vs.png')<fetched.index('run/scientific_vp.png')
 
 
