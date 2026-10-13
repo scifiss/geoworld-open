@@ -374,5 +374,7 @@ def test_post_bootstrap_changed_flagship_input_is_rejected(path, value) -> None:
     assert world.model_dump_json() == before
     assert len(world.states) == 2
     assert len(world.field_bindings) == 10
-    assert len(world.representations) == 5
+    # The five existing representations remain; geometry evidence is additive.
+    assert len([rep for rep in world.representations if not rep.representation_id.startswith('representation:geometry-relationships:')]) == 5
+    assert len([rep for rep in world.representations if rep.representation_id.startswith('representation:geometry-relationships:')]) == 1
     assert flagship_input_sha256(original) != flagship_input_sha256(changed)

@@ -92,6 +92,22 @@ def test_observation_semantic_hash_is_independent_of_file_checksum(tmp_path) -> 
         verify_flagship_artifacts(output)
 
 
+def test_geometry_evidence_semantic_hash_is_independent_of_file_checksum(tmp_path) -> None:
+    output=write_flagship_artifacts(_result(),tmp_path/'flagship')
+    evidence=next((output/'geometry').glob('relationships-*.json'))
+    payload=json.loads(evidence.read_text())
+    payload['assessments'][0]['spatial']['reason']='tampered claim'
+    evidence.write_text(json.dumps(payload))
+    manifest_path=output/'manifest.json'
+    manifest=json.loads(manifest_path.read_text())
+    item=next(entry for entry in manifest['artifacts'] if entry['path']==str(evidence.relative_to(output)))
+    item['sha256']=file_sha256(evidence)
+    item['bytes']=evidence.stat().st_size
+    manifest_path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError,match='Representation content hash mismatch'):
+        verify_flagship_artifacts(output)
+
+
 def test_flagship_diagnostic_output_option_is_honored(tmp_path) -> None:
     spec = load_flagship_spec(EXAMPLE)
     payload = spec.model_dump(mode="python")
