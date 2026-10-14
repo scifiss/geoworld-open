@@ -88,6 +88,49 @@ class CodingAgent(Protocol):
         ...
 
 
+class NumericalSourceResponse(ContractModel):
+    """Model supplies numerical Python only; the host owns package transport."""
+    source: str = Field(min_length=1, max_length=65536)
+
+
+class DevelopmentBudget(ContractModel):
+    max_attempts: int = Field(default=3, ge=1, le=3)
+    total_tokens: int = Field(default=8192, ge=1, le=32768)
+    output_tokens_per_attempt: int = Field(default=1600, ge=1, le=4096)
+
+
+class DevelopmentDiagnosis(ContractModel):
+    category: Literal['syntax', 'interface', 'unit_test', 'numerical', 'security',
+                      'resource', 'provider', 'budget', 'environment']
+    message: str = Field(min_length=1, max_length=512)
+    check_id: str | None = None
+
+
+class DevelopmentAttemptReceipt(ContractModel):
+    attempt: int = Field(ge=1, le=3)
+    candidate_id: NonEmptyStr
+    request_sha256: Digest = Field(pattern=r'^[0-9a-f]{64}$')
+    predecessor_sha256: Digest | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
+    evidence_sha256: Digest = Field(pattern=r'^[0-9a-f]{64}$')
+    package_sha256: Digest | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
+    state: Literal['proposed', 'generated', 'tested', 'verified']
+    diagnoses: tuple[DevelopmentDiagnosis, ...] = ()
+    prompt_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
+    # An attempt receipt never authorizes activation.
+    execution_authorized: Literal[False] = False
+
+    @model_validator(mode='after')
+    def consistent_attempt(self):
+        if (self.attempt == 1) != (self.predecessor_sha256 is None):
+            raise ValueError('Repair attempts require an exact predecessor receipt hash')
+        if self.state != 'proposed' and self.package_sha256 is None:
+            raise ValueError('Generated/tested attempts require a source package hash')
+        if self.state == 'verified' and self.diagnoses:
+            raise ValueError('A verified attempt cannot have unresolved failures')
+        return self
+
+
 class VerificationEnvironment(ContractModel):
     runner: NonEmptyStr
     policy_sha256: Digest = Field(pattern=r'^[0-9a-f]{64}$')

@@ -1,5 +1,18 @@
 """Offline transport/lifecycle checks; no private source or code execution."""
 import pytest
+
+
+def test_source_only_response_and_bounded_repair_receipts():
+    from geoworld_open.standard.candidates import NumericalSourceResponse, DevelopmentBudget, DevelopmentAttemptReceipt
+    from pydantic import ValidationError
+    assert NumericalSourceResponse(source='def compute(x): return {}').source.startswith('def')
+    with pytest.raises(ValidationError):
+        NumericalSourceResponse(source='x', files=[])
+    with pytest.raises(ValidationError):
+        DevelopmentBudget(max_attempts=4)
+    with pytest.raises(ValidationError, match='predecessor'):
+        DevelopmentAttemptReceipt(attempt=2,candidate_id='test',request_sha256='a'*64,
+            evidence_sha256='b'*64,state='proposed')
 from pydantic import ValidationError
 from geoworld_open.standard.candidates import CandidateTextFile, CandidateLifecycleRecord, CandidateApproval
 
