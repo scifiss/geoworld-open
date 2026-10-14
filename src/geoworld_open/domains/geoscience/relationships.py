@@ -5,11 +5,11 @@ from dataclasses import dataclass
 from hashlib import sha256
 import json
 from typing import Literal, Callable
-from pydantic import Field
+from pydantic import Field, PrivateAttr
 from geoworld_open.reference.spatial import Geometry, CellRegion, Polyline, UnknownGeometry, SpatialAssessment, contained_by, curve_region
 from geoworld_open.standard.capabilities import ContractModel
 from geoworld_open.sdk.serialization import canonical_json_bytes
-from geoworld_open.world import World, SubjectRef, SubjectKind, Relation, Representation, RepresentationKind, Provenance
+from geoworld_open.world import World, SubjectRef, SubjectKind, Relation, Representation, RepresentationKind, Provenance, WorldStateRole
 
 
 class SpatialObject(ContractModel):
@@ -19,6 +19,171 @@ class SpatialObject(ContractModel):
     evidence: tuple[SubjectRef, ...] = Field(min_length=1)
     # Geometry alone cannot establish geological PART_OF semantics.
     part_of_target_id: str | None = None
+    _verification: _GeometryVerification | None = PrivateAttr(default=None)
+
+
+@dataclass(frozen=True)
+class _GeometryVerification:
+    adapter_id: str
+    state_id: str
+    object_sha256: str
+    representations: tuple[Representation, ...]
+    context: object
+
+
+def _object_sha256(obj: SpatialObject) -> str:
+    return sha256(canonical_json_bytes(obj)).hexdigest()
+
+
+def _state_ancestry(world: World, state_id: str) -> tuple[str, ...]:
+    states={item.state_id:item for item in world.states}
+    if state_id not in states:
+        raise ValueError('spatial evidence references an unknown WorldState')
+    result=[]
+    current=states[state_id]
+    while True:
+        result.append(current.state_id)
+        if current.parent_state_id is None:
+            return tuple(result)
+        current=states[current.parent_state_id]
+
+
+def _representation_state_compatible(
+    world: World, ref: SubjectRef, allowed_states: set[str]
+) -> bool:
+    representations={item.ref:item for item in world.representations}
+    provenance={item.provenance_id:item for item in world.provenance}
+    visited_representations:set[SubjectRef]=set()
+    visited_provenance:set[str]=set()
+
+    def from_provenance(provenance_id: str) -> bool:
+        if provenance_id in visited_provenance:
+            return False
+        visited_provenance.add(provenance_id)
+        record=provenance.get(provenance_id)
+        if record is None:
+            return False
+        if any(
+            item.kind==SubjectKind.WORLD_STATE and item.subject_id in allowed_states
+            for item in record.inputs
+        ):
+            return True
+        if any(
+            item.kind==SubjectKind.REPRESENTATION and from_representation(item)
+            for item in record.inputs
+        ):
+            return True
+        return any(from_provenance(parent) for parent in record.parent_provenance_ids)
+
+    def from_representation(candidate: SubjectRef) -> bool:
+        if candidate in visited_representations:
+            return False
+        visited_representations.add(candidate)
+        representation=representations.get(candidate)
+        if representation is None:
+            return False
+        if any(
+            item.kind==SubjectKind.WORLD_STATE and item.subject_id in allowed_states
+            for item in representation.subjects
+        ):
+            return True
+        if any(
+            state.state_id in allowed_states and candidate in state.representation_refs
+            for state in world.states
+        ):
+            return True
+        if any(from_representation(parent) for parent in representation.derived_from):
+            return True
+        return any(from_provenance(item) for item in representation.provenance_ids)
+
+    return from_representation(ref)
+
+
+def _validate_spatial_frame(world: World, obj: SpatialObject) -> None:
+    frames={item.frame_id:item for item in world.reference_frames}
+    geometry_frame=obj.geometry.frame
+    frame=frames.get(geometry_frame.frame_id)
+    if (
+        frame is None
+        or frame.coordinate_names!=('depth','x')
+        or frame.units!=('m','m')
+        or tuple(direction.value for direction in frame.positive_directions)!=('down','increasing')
+        or geometry_frame.axes!='x_depth_positive_down'
+        or geometry_frame.unit not in {'m','km'}
+    ):
+        raise ValueError('geometry frame is not compatible with the registered World frame')
+
+
+def _attach_geometry_verification(
+    world: World,
+    state_id: str,
+    obj: SpatialObject,
+    *,
+    adapter_id: str,
+    context: object,
+) -> SpatialObject:
+    """Attach private adapter context; admission re-derives the geometry from it."""
+    if obj.entity_id not in {item.entity_id for item in world.entities}:
+        raise ValueError('geometry Entity is absent from the World')
+    if obj.part_of_target_id is not None and obj.part_of_target_id not in {
+        item.entity_id for item in world.entities
+    }:
+        raise ValueError('PART_OF target is absent from the World')
+    _validate_spatial_frame(world,obj)
+    ancestry=set(_state_ancestry(world,state_id))
+    registered={item.ref:item for item in world.representations}
+    source_records=[]
+    for ref in obj.evidence:
+        representation=registered.get(ref)
+        if ref.kind!=SubjectKind.REPRESENTATION or representation is None:
+            raise ValueError('geometry requires exact registered Representation versions')
+        if not _representation_state_compatible(world,ref,ancestry):
+            raise ValueError('geometry source Representation is outside the claimed WorldState lineage')
+        source_records.append(representation)
+    object.__setattr__(
+        obj,
+        '_verification',
+        _GeometryVerification(
+            adapter_id=adapter_id,
+            state_id=state_id,
+            object_sha256=_object_sha256(obj),
+            representations=tuple(source_records),
+            context=context,
+        ),
+    )
+    return obj
+
+
+def _require_verified_spatial_object(world: World, state_id: str, obj: SpatialObject) -> None:
+    verification=obj._verification
+    if verification is None:
+        raise ValueError('caller-provided geometry is unverified; use a trusted source adapter')
+    if verification.state_id!=state_id:
+        raise ValueError('verified geometry is bound to a different WorldState')
+    if verification.object_sha256!=_object_sha256(obj):
+        raise ValueError('verified geometry or its evidence binding changed after verification')
+    _validate_spatial_frame(world,obj)
+    ancestry=set(_state_ancestry(world,state_id))
+    registered={item.ref:item for item in world.representations}
+    if len(obj.evidence)!=len(verification.representations):
+        raise ValueError('verified geometry Representation binding changed')
+    for ref,verified_representation in zip(obj.evidence,verification.representations):
+        if registered.get(ref)!=verified_representation:
+            raise ValueError('registered Representation version or content identity changed')
+        if not _representation_state_compatible(world,ref,ancestry):
+            raise ValueError('geometry source Representation is outside the claimed WorldState lineage')
+    if verification.adapter_id=='structural':
+        from geoworld_open.domains.geoscience.structural.relationships import (
+            _verify_structural_spatial_object,
+        )
+        _verify_structural_spatial_object(world,state_id,obj,verification.context)
+    elif verification.adapter_id=='flagship':
+        from geoworld_open.domains.geoscience.flagship.relationships import (
+            _verify_flagship_spatial_object,
+        )
+        _verify_flagship_spatial_object(world,state_id,obj,verification.context)
+    else:
+        raise ValueError('geometry verification does not identify a trusted source adapter')
 
 
 class RelationshipAssessment(ContractModel):
@@ -49,12 +214,11 @@ def derive_relationships(world: World, state_id: str, objects: tuple[SpatialObje
     """Append evidence and supported claims atomically; retain absent/unknown cases.
 
     This is semantic enrichment, not a new numerical state or ninth kernel type.
-    Caller geometries must originate in verified representation-backed data.
+    Caller-supplied geometry is never authoritative: only source adapters that
+    verified its exact Representation, derivation, entity, and state may seal it.
     """
     world.state(state_id)
     entities={item.entity_id:item for item in world.entities}
-    frames={item.frame_id:item for item in world.reference_frames}
-    representations={item.ref for item in world.representations}
     if len({obj.entity_id for obj in objects})!=len(objects):
         raise ValueError('spatial objects must have distinct entity IDs')
     objects=tuple(sorted(objects,key=lambda obj:obj.entity_id))
@@ -63,13 +227,9 @@ def derive_relationships(world: World, state_id: str, objects: tuple[SpatialObje
         expected={'region':'geoscience:reservoir_region','formation':'geoscience:formation','well':'geoscience:well','fault':'geoscience:fault'}[obj.role]
         if entity is None or entity.entity_type!=expected:
             raise ValueError('semantic roles must match registered Entity types')
-        frame=frames.get(obj.geometry.frame.frame_id)
-        if frame is None or frame.coordinate_names!=('depth','x') or any(unit not in {'m','km'} for unit in frame.units) or tuple(direction.value for direction in frame.positive_directions)!=('down','increasing'):
-            raise ValueError('geometry requires a registered compatible depth/x frame')
-        if any(ref.kind!=SubjectKind.REPRESENTATION or ref not in representations for ref in obj.evidence):
-            raise ValueError('geometry evidence must reference registered exact Representation versions')
-        if obj.part_of_target_id and obj.part_of_target_id not in entities:
-            raise ValueError('authored part-of target is absent')
+        _require_verified_spatial_object(world,state_id,obj)
+        if obj.part_of_target_id and obj.role!='region':
+            raise ValueError('only explicitly authored ReservoirRegion objects may establish PART_OF')
     assessments=[]
     for source in objects:
         for target in objects:

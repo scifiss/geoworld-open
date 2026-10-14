@@ -43,10 +43,11 @@ authorizes execution. Existing private admission gates remain necessary.
   acceptance criteria. Evidence authenticity still requires a reviewed verifier.
 * `reference/spatial.py`: transparent geometric predicates, without geology roles.
 * `domains/geoscience/relationships.py`: role validation, supported semantic
-  assignment and content-bound World evidence. Caller geometry must originate in
-  verified representation-backed data; arbitrary references alone prove no shape.
+  assignment and content-bound World evidence. Unsealed caller geometry is rejected;
+  an evidence reference or caller-generated geometry hash cannot establish shape.
 * Structural and flagship `relationships.py`: verify immutable bundles and
-  compiled inputs, extract supported geometries, preserve compatible relation IDs.
+  compiled inputs, extract supported geometries, bind them to exact entities and
+  WorldState lineage, and preserve compatible relation IDs.
 * Flagship integration/artifacts: replace unconditional relation insertion and
   persist the additional evidence without changing numerical operators.
 
@@ -76,9 +77,30 @@ membership. PART_OF additionally requires the explicitly authored parent role;
 geometry alone is insufficient. Wells and faults also require registered typed
 Entities; arbitrary shape overlap does not invent geological roles.
 
-The structural adapter obtains formation membership from the exact stratigraphy
-bundle and checks grid coordinates against the World-bound compiled input. For a
-single final fault after folds, the defining trace is
+The structural adapter requires the bundle's exact versioned Representation to
+match the immutable World record, rechecks its content hash, state FieldBindings,
+regular-grid Support, ReferenceFrame, provenance method, and the exact compiled
+input hash. Formation geometry is reconstructed from `layer_index` and its
+explicit `formation:<id>` mapping. `reservoir_selection` is checked against the
+compiled reservoir-role lookup; the flagship adapter accepts it as the named
+ReservoirRegion geometry only when it isolates the ReservoirRegion's explicitly
+authored Formation. Otherwise that geometry is `unknown` and its relationship is
+indeterminate. The flagship well curve is checked against the exact CSV bytes,
+version, well Entity, CURVE Support, frame, compiled input, and derivation record.
+
+Only these source adapters attach nonserialized verification context. That
+context is not itself authority: before evaluating predicates,
+`derive_relationships()` reruns the source adapter's extraction and compares the
+resulting geometry, exact Representation records, entity, state, and authored
+PART_OF target. Calling the internal context-attachment helper with arbitrary
+geometry does not pass this re-derivation check. Changing geometry, evidence,
+entity, relation state, or Representation identity invalidates verification.
+State compatibility follows parent-state and provenance lineage; it does not
+require every legitimate derived Representation to be a direct member of the
+current state. A digest of arbitrary caller geometry is never accepted as
+source evidence.
+
+For a single final fault after folds, the defining trace is
 
 ```text
 z(x) = reference_depth + (x - fault_x) * tan(dip) / dip_direction
@@ -104,8 +126,10 @@ Relations are issued only for positive assessments. Absent and indeterminate
 assessments remain in canonical, content-hashed TABLE evidence. It records exact
 source geometries, frame/unit/tolerance/grid information and Representation
 versions. Provenance connects the state, Entities and source Representations to
-the evidence and supported Relations. No new WorldState or kernel concept is
-introduced by semantic enrichment.
+the evidence and supported Relations. A source reference alone is insufficient:
+geometry must have been extracted from or independently derived from the
+content-verified source through the trusted adapter. No new WorldState or kernel
+concept is introduced by semantic enrichment.
 
 Input Worlds/bundles are unchanged; reapplying the same derivation returns the
 same immutable records with no duplicates. Conflicting existing IDs fail closed.

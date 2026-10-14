@@ -180,8 +180,15 @@ def test_shallow_well_and_multiple_reservoir_formations_remove_claims():
     assert not any(r.source_entity_id=='well:w1' and r.relation_type=='geoscience:penetrates' for r in world.relations)
     def extended(raw):
         raw['structural']['layers'][0]['is_reservoir']=True
-    _,_,world=bootstrap(extended)
+    inputs,structural,world=bootstrap(extended)
     assert ('reservoir-region:r1','geoscience:part_of','formation:reservoir_sand') not in triples(world)
+    result=flagship_relationships(world,structural,inputs)
+    assert {
+        item.spatial.status
+        for item in result.assessments
+        if item.source_entity_id=='reservoir-region:r1'
+        and item.target_entity_id=='formation:reservoir_sand'
+    }=={'indeterminate'}
 
 
 def test_repeated_application_is_idempotent_content_bound_and_immutable():
@@ -220,15 +227,197 @@ def test_geometry_alone_never_assigns_part_of_and_false_roles_rejected():
     inputs,structural,world=bootstrap()
     base=next(obj for obj in structural_objects(structural) if obj.entity_id=='formation:reservoir_sand')
     region_obj=SpatialObject(entity_id='reservoir-region:r1',role='region',geometry=base.geometry,evidence=base.evidence)
-    result=derive_relationships(world,structural.final_state_id,(base,region_obj))
-    assert not result.assessments  # no authored geological membership context
+    assert region_obj.part_of_target_id is None
+    with pytest.raises(ValueError,match='unverified'):
+        derive_relationships(world,structural.final_state_id,(base,region_obj))
     with pytest.raises(ValueError,match='roles'):
-        derive_relationships(world,structural.final_state_id,(base.model_copy(update={'role':'well'}),))
+        derive_relationships(
+            world,
+            structural.final_state_id,
+            (base.model_copy(update={'role':'well'}),),
+        )
+
+
+def test_generic_boundary_rejects_existing_but_unrelated_evidence():
+    inputs,structural,world=bootstrap()
+    base=next(obj for obj in structural_objects(structural) if obj.entity_id=='formation:reservoir_sand')
+    unrelated=SpatialObject(
+        entity_id='well:w1',
+        role='well',
+        geometry=line(x=base.geometry.x_edges[0]+.5),
+        evidence=base.evidence,
+    )
+    assert unrelated.evidence[0] in {item.ref for item in world.representations}
+    with pytest.raises(ValueError,match='unverified'):
+        derive_relationships(world,structural.final_state_id,(base,unrelated))
+
+
+def test_internal_adapter_binding_cannot_seal_arbitrary_geometry_or_part_of():
+    from geoworld_open.domains.geoscience.relationships import _attach_geometry_verification
+    inputs,structural,world=bootstrap()
+    base=next(obj for obj in structural_objects(structural) if obj.entity_id=='formation:reservoir_sand')
+    forged_geometry=base.geometry.model_copy(
+        update={'membership':tuple(tuple(not value for value in row) for row in base.geometry.membership)}
+    )
+    forged_formation=SpatialObject(
+        entity_id=base.entity_id,
+        role='formation',
+        geometry=forged_geometry,
+        evidence=base.evidence,
+    )
+    _attach_geometry_verification(
+        structural.world,
+        structural.final_state_id,
+        forged_formation,
+        adapter_id='structural',
+        context=structural,
+    )
+    with pytest.raises(ValueError,match='not the verified extraction'):
+        derive_relationships(world,structural.final_state_id,(forged_formation,))
+
+    forged_region=SpatialObject(
+        entity_id='reservoir-region:r1',
+        role='region',
+        geometry=base.geometry,
+        evidence=(
+            base.evidence[0],
+            next(
+                item.ref for item in world.representations
+                if item.representation_id=='representation:flagship-input'
+            ),
+        ),
+        part_of_target_id='formation:upper_shale',
+    )
+    _attach_geometry_verification(
+        world,
+        structural.final_state_id,
+        forged_region,
+        adapter_id='flagship',
+        context=(world,structural,inputs),
+    )
+    with pytest.raises(ValueError,match='not the verified extraction'):
+        derive_relationships(world,structural.final_state_id,(forged_region,))
+
+
+def test_verified_geometry_cannot_be_changed_or_reassigned_after_extraction():
+    inputs,structural,world=bootstrap()
+    base=next(obj for obj in structural_objects(structural) if obj.entity_id=='formation:reservoir_sand')
+    changed=base.geometry.model_copy(
+        update={'membership':tuple(tuple(not value for value in row) for row in base.geometry.membership)}
+    )
+    with pytest.raises(ValueError,match='changed|unverified'):
+        derive_relationships(
+            world,
+            structural.final_state_id,
+            (base.model_copy(update={'geometry':changed}),),
+        )
+    with pytest.raises(ValueError,match='changed|unverified'):
+        derive_relationships(
+            world,
+            structural.final_state_id,
+            (base.model_copy(update={'entity_id':'formation:upper_shale'}),),
+        )
+
+
+def test_verified_geometry_is_state_bound_and_exact_representation_bound():
+    inputs,structural,world=bootstrap()
+    objects=structural_objects(structural)
+    with pytest.raises(ValueError,match='different WorldState'):
+        derive_relationships(world,structural.initial_state_id,objects)
+
+    source=objects[0].evidence[0]
+    changed_representations=tuple(
+        item.model_copy(update={'content_sha256':'0'*64}) if item.ref==source else item
+        for item in world.representations
+    )
+    changed_world=world.model_copy(update={'representations':changed_representations})
+    with pytest.raises(ValueError,match='Representation version or content identity changed'):
+        derive_relationships(changed_world,structural.final_state_id,objects)
+
+
+def test_structural_adapter_rejects_wrong_version_and_coordinate_support():
+    inputs,structural,world=bootstrap()
+    source=structural.stratigraphy_bundle.representation
+    changed_rep=source.model_copy(update={'version':'v2'})
+    changed_world=structural.world.model_copy(
+        update={
+            'representations':tuple(
+                changed_rep if item.ref==source.ref else item
+                for item in structural.world.representations
+            )
+        }
+    )
+    from dataclasses import replace
+    with pytest.raises(ValueError,match='exact registered Representation'):
+        structural_objects(replace(structural,world=changed_world))
+
+    frame=next(item for item in structural.world.reference_frames if item.frame_id==source.reference_frame_id)
+    changed_frame=frame.model_copy(update={'units':('m','s')})
+    changed_world=structural.world.model_copy(
+        update={
+            'reference_frames':tuple(
+                changed_frame if item.frame_id==frame.frame_id else item
+                for item in structural.world.reference_frames
+            )
+        }
+    )
+    with pytest.raises(ValueError,match='coordinate support'):
+        structural_objects(replace(structural,world=changed_world))
+
+
+def test_structural_adapter_rejects_changed_bundle_with_a_new_caller_hash():
+    from dataclasses import replace
+    from geoworld_open.world import XarrayBundle
+    inputs,structural,world=bootstrap()
+    bundle=structural.stratigraphy_bundle
+    dataset=bundle.to_dataset()
+    dataset['layer_index'].values[0,0]=1-dataset['layer_index'].values[0,0]
+    from geoworld_open.world import dataset_content_sha256
+    replacement=bundle.representation.model_copy(
+        update={'content_sha256':dataset_content_sha256(dataset)}
+    )
+    forged_bundle=XarrayBundle(dataset,replacement,bundle.variable_bindings)
+    with pytest.raises(ValueError,match='differs from the World record'):
+        structural_objects(replace(structural,stratigraphy_bundle=forged_bundle))
+
+
+def test_flagship_rejects_trajectory_attributed_to_another_well():
+    from dataclasses import replace
+    inputs,structural,world=bootstrap()
+    trajectory=next(
+        item for item in world.representations
+        if item.representation_id=='representation:flagship-well-trajectory'
+    )
+    forged=trajectory.model_copy(
+        update={'subjects':(type(trajectory.subjects[0])(
+            kind=trajectory.subjects[0].kind,
+            subject_id='well:other',
+        ),)}
+    )
+    changed_world=world.model_copy(
+        update={
+            'representations':tuple(
+                forged if item.ref==trajectory.ref else item
+                for item in world.representations
+            )
+        }
+    )
+    with pytest.raises(ValueError,match='well trajectory differs'):
+        flagship_relationships(changed_world,structural,inputs)
+
+
+def test_flagship_rejects_changed_compiled_source_with_original_evidence():
+    from dataclasses import replace
+    inputs,structural,world=bootstrap()
+    changed_well=inputs.well.model_copy(update={'x_m':inputs.well.x_m+1})
+    changed_inputs=inputs.model_copy(update={'well':changed_well})
+    with pytest.raises(ValueError,match='World-bound source'):
+        flagship_relationships(world,structural,changed_inputs)
 
 
 def test_geometry_adapter_rejects_changed_compiled_input():
     from dataclasses import replace
     _,structural,_=bootstrap()
     changed=structural.structural_input.model_copy(update={'root_seed':999})
-    with pytest.raises(ValueError,match='World-bound input'):
+    with pytest.raises(ValueError,match='World-bound source'):
         structural_objects(replace(structural,structural_input=changed))
