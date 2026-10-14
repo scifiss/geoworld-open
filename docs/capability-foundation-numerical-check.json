@@ -1,0 +1,27 @@
+{
+  "benchmark": "examples/scenarios/flagship_faulted_reservoir.yaml",
+  "comparison": "same-environment pre-change versus new geometry evidence implementation",
+  "python": "3.11.16",
+  "numpy": "1.26.4",
+  "matched_arrays": 16,
+  "all_arrays_bitwise_equal": true,
+  "numerical_hashes": {
+    "structural_dataset/source_depth_m": "b50801d4b0e52b23cc83148409d936df7da2f91c5f0d561305eb6cc83f268209",
+    "structural_dataset/structural_displacement_m": "23429c337fe47f94d79b471b61b81d70c8e403d65e9d6758feee9d7e2a9258ae",
+    "structural_dataset/fold_displacement_m": "a6f5afcc1f1083a2be3d326d77c4e66172217b71911677d4bb72e880ca643b59",
+    "structural_dataset/fault_displacement_m": "ffdc36c5872a9f392d6b99bf9f8c535555b46b94b8d1db351e245db4b60ba362",
+    "structural_dataset/fault_selection": "2af6f03385fecabec5615288da02a79a4b9a271abff3e9dd381bc6cbeca697d1",
+    "structural_dataset/boundary_clipped_mask": "6e5230b675e3970617eb17c9ad0e62dd925bff04378603d7945d1dc64220dd1a",
+    "structural_dataset/layer_index": "816dd3980aa09c8532e67d04f3cff4aa81570e2337da54697049bfbb29446690",
+    "structural_dataset/facies": "436bacda45cb25ca335318256ed170806c8fa7f54d8176105a803a723fd5d467",
+    "structural_dataset/porosity": "d51b991ca9fd6fb2e13def5a70ea04787258295f4898c34612ae2c212c26effd",
+    "structural_dataset/reservoir_selection": "8e2a41a57b252f402e3d7051ed1a39130c286f0a74bf1c284dd784f0e5ec7c1c",
+    "baseline_dataset/reservoir_selection": "8e2a41a57b252f402e3d7051ed1a39130c286f0a74bf1c284dd784f0e5ec7c1c",
+    "baseline_dataset/pressure": "9b54789cbd0742294cc27493a3dabec23dea7152f4e248595e1c7e614dd87414",
+    "baseline_dataset/temperature": "e0840d17ea513268f7130361814a2c0e841752d0b2a6355302ab3adc7baa159d",
+    "perturbed_dataset/pressure": "5759dfbec6afb372d09071c6bd418c898668cddf6619ef8ce308d97b1c217daf",
+    "perturbed_dataset/pressure_perturbation": "680e7f6ebd241da8137ea13679284e188e2e990f71cea9ffd260200acf2463c3",
+    "perturbed_dataset/temperature": "e0840d17ea513268f7130361814a2c0e841752d0b2a6355302ab3adc7baa159d"
+  },
+  "note": "Numerical bytes only; World/manifest intentionally change to include derived relationship evidence. Not a portable cross-platform floating-point golden."
+}

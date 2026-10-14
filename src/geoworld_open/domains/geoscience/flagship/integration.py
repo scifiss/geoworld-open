@@ -43,7 +43,6 @@ from geoworld_open.world import (
     ObservationStatus,
     PhysicalRank,
     Provenance,
-    Relation,
     Representation,
     RepresentationKind,
     SubjectKind,
@@ -261,43 +260,6 @@ def bootstrap_flagship_semantics(
             provenance_ids=("provenance:flagship-semantics",),
         ),
     )
-    relations = (
-        Relation(
-            relation_id="relation:flagship-region-part-of-formation",
-            source_entity_id=region_id,
-            relation_type="geoscience:part_of",
-            target_entity_id=formation_id,
-            provenance_ids=("provenance:flagship-semantics",),
-        ),
-        Relation(
-            relation_id="relation:flagship-well-penetrates-region",
-            source_entity_id=well_id,
-            relation_type="geoscience:penetrates",
-            target_entity_id=region_id,
-            provenance_ids=("provenance:flagship-semantics",),
-        ),
-        Relation(
-            relation_id="relation:flagship-well-penetrates-formation",
-            source_entity_id=well_id,
-            relation_type="geoscience:penetrates",
-            target_entity_id=formation_id,
-            provenance_ids=("provenance:flagship-semantics",),
-        ),
-        Relation(
-            relation_id="relation:flagship-fault-intersects-region",
-            source_entity_id=fault_id,
-            relation_type="geoscience:intersects",
-            target_entity_id=region_id,
-            provenance_ids=("provenance:flagship-semantics",),
-        ),
-        Relation(
-            relation_id="relation:flagship-fault-intersects-formation",
-            source_entity_id=fault_id,
-            relation_type="geoscience:intersects",
-            target_entity_id=formation_id,
-            provenance_ids=("provenance:flagship-semantics",),
-        ),
-    )
     definitions = (
         _field_definition("pressure", "Pa", missingness=Missingness.ALLOW),
         _field_definition(
@@ -307,7 +269,6 @@ def bootstrap_flagship_semantics(
     )
     semantic_outputs = (
         *(_ref(SubjectKind.ENTITY, item.entity_id) for item in entities),
-        *(_ref(SubjectKind.RELATION, item.relation_id) for item in relations),
         *(_ref(SubjectKind.FIELD_DEFINITION, item.field_id) for item in definitions),
         _ref(SubjectKind.SUPPORT, OBSERVATION_SUPPORT_ID),
     )
@@ -324,7 +285,7 @@ def bootstrap_flagship_semantics(
         Provenance(
             provenance_id="provenance:flagship-semantics",
             activity_type="geoscience:flagship_semantic_bootstrap",
-            method="explicit authored ReservoirRegion, Well, and relations",
+            method="explicit authored ReservoirRegion and Well identity; spatial claims assessed separately",
             inputs=(
                 _state_ref(STRUCTURAL_STATE_ID),
                 input_ref,
@@ -345,7 +306,6 @@ def bootstrap_flagship_semantics(
     )
     payload = world.model_dump(mode="python")
     payload["entities"] = world.entities + entities
-    payload["relations"] = world.relations + relations
     payload["field_definitions"] = world.field_definitions + definitions
     payload["supports"] = world.supports + (trajectory_support, observation_support)
     payload["representations"] = world.representations + (
@@ -353,7 +313,9 @@ def bootstrap_flagship_semantics(
         trajectory_representation,
     )
     payload["provenance"] = world.provenance + provenance
-    return World.model_validate(payload), trajectory_bytes
+    from geoworld_open.domains.geoscience.flagship.relationships import flagship_relationships
+    enriched=World.model_validate(payload)
+    return flagship_relationships(enriched,structural_result,flagship_input).world, trajectory_bytes
 
 
 def _state_binding(

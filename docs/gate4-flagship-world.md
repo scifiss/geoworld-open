@@ -39,7 +39,7 @@ The example creates three Formation Entities, one Fault, one Fold,
 Boolean Field. Likewise, the Well is not its trajectory Representation, and
 the Fault is not `fault_selection`.
 
-The explicitly authored relations are:
+The unchanged example supports these geometry-derived relations:
 
 ```text
 reservoir-region:r1 PART_OF formation:reservoir_sand
@@ -49,8 +49,16 @@ fault:fault_f1 INTERSECTS reservoir-region:r1
 fault:fault_f1 INTERSECTS formation:reservoir_sand
 ```
 
-These are scenario statements. Gate 4 does not implement a general topology
-engine.
+The semantic roles and the Region's named Formation membership remain authored.
+Containment, well interior penetration and fault-trace intersection are assessed
+by the bounded shared 2D reference predicates, rather than inserted as scenario
+statements. Changing the geometry removes unsupported claims. Geometry alone
+does not establish PART_OF, and a displaced-side mask is not a fault surface.
+The original five relation IDs remain compatible. An additional immutable TABLE
+Representation records the source geometries, positive/absent/indeterminate
+assessments and exact evidence references; numerical state arrays are unchanged.
+This is not a general 3D topology engine. See
+[capability-development-foundation.md](capability-development-foundation.md).
 
 The Region-scoped `reservoir_selection` FieldBinding names
 `reservoir-region:r1` as its semantic subject, retains the structural grid as

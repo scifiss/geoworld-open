@@ -198,6 +198,12 @@ def write_flagship_artifacts(
     write_representation_bundle(output, result.baseline_bundle)
     write_representation_bundle(output, result.perturbed_bundle)
 
+    from geoworld_open.domains.geoscience.flagship.relationships import flagship_relationships
+    derivation=flagship_relationships(result.enriched_world,result.structural_result,result.flagship_input)
+    evidence_path=output/derivation.representation.artifact_uri.removeprefix('artifact://')
+    evidence_path.parent.mkdir(parents=True,exist_ok=True)
+    evidence_path.write_bytes(derivation.evidence_bytes)
+
     _write_json(output / "world.json", result.world.model_dump(mode="json"))
     _write_json(
         output / "world_summary.json",
