@@ -335,6 +335,23 @@ def test_verified_geometry_is_state_bound_and_exact_representation_bound():
         derive_relationships(changed_world,structural.final_state_id,objects)
 
 
+def test_structural_geometry_cannot_cross_world_identity():
+    inputs,structural,world=bootstrap()
+    objects=structural_objects(structural)
+    payload=world.model_dump(mode='python')
+    payload['world_id']='world:independent-copy'
+    payload['states']=tuple(
+        state.model_copy(update={'world_id':'world:independent-copy'})
+        for state in world.states
+    )
+    other_world=type(world).model_validate(payload)
+    assert other_world.world_id!=world.world_id
+    assert other_world.state(structural.final_state_id).state_id==structural.final_state_id
+    assert other_world.representations==world.representations
+    with pytest.raises(ValueError,match='different World identity'):
+        derive_relationships(other_world,structural.final_state_id,objects)
+
+
 def test_structural_adapter_rejects_wrong_version_and_coordinate_support():
     inputs,structural,world=bootstrap()
     source=structural.stratigraphy_bundle.representation

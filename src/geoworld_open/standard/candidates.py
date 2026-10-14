@@ -7,6 +7,7 @@ from __future__ import annotations
 from hashlib import sha256
 from pathlib import PurePosixPath
 from typing import Literal, Protocol
+import json
 import re
 
 from pydantic import Field, model_validator
@@ -166,9 +167,14 @@ class CandidateLifecycleRecord(ContractModel):
     evidence_sha256: Digest | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
     reason: NonEmptyStr
     activation_scope: Literal['disabled', 'offline_review'] = 'disabled'
+    execution_authorized: Literal[False] = False
 
     @model_validator(mode='after')
     def bounded_state(self):
+        if self.revision == 1 and self.state != 'proposed':
+            raise ValueError('candidate lifecycle must begin at revision 1 in proposed state')
+        if self.revision == 1 and (self.package_sha256 is not None or self.evidence_sha256 is not None):
+            raise ValueError('initial proposed lifecycle record cannot claim generated package or verification evidence')
         if self.state != 'proposed' and not self.package_sha256:
             raise ValueError('post-generation state requires exact source package identity')
         if (self.revision == 1) != (self.previous_sha256 is None):
@@ -177,6 +183,55 @@ class CandidateLifecycleRecord(ContractModel):
             raise ValueError('tested/reviewed states require recorded evidence')
         if self.state == 'active' and self.activation_scope != 'offline_review':
             raise ValueError('this gate cannot activate production candidates')
+        return self
+
+
+def candidate_lifecycle_record_sha256(record: CandidateLifecycleRecord) -> str:
+    """Hash a canonical immutable receipt for append-only predecessor linking."""
+    payload=json.dumps(
+        record.model_dump(mode='json'),
+        sort_keys=True,
+        separators=(',',':'),
+        ensure_ascii=True,
+        allow_nan=False,
+    ).encode()
+    return sha256(payload).hexdigest()
+
+
+class CandidateLifecycleChain(ContractModel):
+    """Validate lifecycle order and linkage; never an admission authorization."""
+
+    records: tuple[CandidateLifecycleRecord, ...] = Field(min_length=1)
+    execution_authorized: Literal[False] = False
+
+    @model_validator(mode='after')
+    def append_only_progression(self):
+        first=self.records[0]
+        if first.revision!=1 or first.state!='proposed' or first.previous_sha256 is not None:
+            raise ValueError('candidate lifecycle chain must begin with revision 1 proposed')
+        allowed={
+            'proposed':{'generated'},
+            'generated':{'tested'},
+            'tested':{'tested','verified'},
+            'verified':{'approved'},
+            'approved':{'active'},
+            'active':set(),
+        }
+        for index,(previous,current) in enumerate(zip(self.records,self.records[1:]),start=2):
+            if (
+                current.candidate_id!=first.candidate_id
+                or current.revision!=index
+                or current.request_sha256!=first.request_sha256
+            ):
+                raise ValueError('lifecycle records must retain candidate, request, and contiguous revisions')
+            if current.previous_sha256!=candidate_lifecycle_record_sha256(previous):
+                raise ValueError('lifecycle predecessor hash does not match the previous immutable receipt')
+            if current.state not in allowed[previous.state]:
+                raise ValueError(
+                    f'invalid candidate lifecycle transition: {previous.state} -> {current.state}'
+                )
+            if previous.package_sha256 is not None and current.package_sha256!=previous.package_sha256:
+                raise ValueError('lifecycle package identity cannot change after generation')
         return self
 
 

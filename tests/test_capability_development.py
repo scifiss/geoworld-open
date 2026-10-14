@@ -36,6 +36,48 @@ class DensitySource:
         return CapabilityRunResult(xr.Dataset({'density_kg_m3':(('z','x'),[[2200.]],{'units':'kg/m^3'})}))
 
 
+class OptionalOutputSource:
+    required_output=VariableSpec(name='required_value',unit='1',dimensions=('z','x'),dtype_kind=DTypeKind.FLOAT)
+    optional_output=VariableSpec(name='optional_value',unit='1',dimensions=('z','x'),
+                                 dtype_kind=DTypeKind.FLOAT,required=False)
+    spec=CapabilitySpec(
+        capability_id='reference.optional_output_source',
+        version='1.0',
+        kind=CapabilityKind.TRANSFORM,
+        title='Capability with an optional result',
+        outputs=(required_output,optional_output),
+        validity_domain=ValidityDomain(description='Explicit adapter contract test.'),
+    )
+
+    def __init__(self,include_optional):
+        self.include_optional=include_optional
+
+    def execute(self,dataset,context):
+        outputs={
+            'required_value':(('z','x'),[[1.]],{'units':'1'}),
+        }
+        if self.include_optional:
+            outputs['optional_value']=(('z','x'),[[2.]],{'units':'1'})
+        return CapabilityRunResult(xr.Dataset(outputs))
+
+
+class OptionalOutputConsumer:
+    spec=CapabilitySpec(
+        capability_id='reference.optional_output_consumer',
+        version='1.0',
+        kind=CapabilityKind.TRANSFORM,
+        title='Consumer requiring an optional upstream result',
+        inputs=(VariableSpec(name='optional_value',unit='1',dimensions=('z','x'),
+                             dtype_kind=DTypeKind.FLOAT),),
+        outputs=(VariableSpec(name='consumed',unit='1',dimensions=('z','x'),
+                              dtype_kind=DTypeKind.FLOAT),),
+        validity_domain=ValidityDomain(description='Explicit dependency-planning test.'),
+    )
+
+    def execute(self,dataset,context):
+        return CapabilityRunResult(xr.Dataset({'consumed':dataset['optional_value']}))
+
+
 def test_existing_exact_contract_reuse_and_missing_operation_no_substitution():
     registry=CapabilityRegistry();registry.register(AcousticImpedanceReference())
     accepted=assess_capability_gap(request(),registry)
@@ -121,6 +163,45 @@ def test_optional_supplied_inputs_and_runtime_inputs_are_validated():
     with pytest.raises(ValueError,match='input violates'):
         adapter.execute(data,context)
     xr.testing.assert_identical(before,data)
+
+
+@pytest.mark.parametrize('include_optional',[False,True])
+def test_optional_outputs_are_not_guaranteed_but_are_selected_when_present(include_optional):
+    plugin=OptionalOutputSource(include_optional)
+    adapter=CapabilityAdapter(plugin)
+    assert tuple(item.name for item in adapter.metadata.produces)==('required_value',)
+    seeds=SeedManager(17)
+    context=ExecutionContext(
+        {},
+        adapter.metadata.capability_id,
+        seeds.generator('optional-output'),
+        seeds.lineage('optional-output'),
+    )
+    result=adapter.execute(xr.Dataset(),context).dataset
+    assert 'required_value' in result
+    assert ('optional_value' in result)==include_optional
+
+
+def test_dependency_planning_does_not_use_optional_output_as_a_producer():
+    registry=CapabilityRegistry()
+    registry.register(OptionalOutputSource(include_optional=True))
+    registry.register(OptionalOutputConsumer())
+    consumer=OptionalOutputConsumer()
+    assessment=assess_capability_gap(
+        request(
+            consumer,
+            required_inputs=(),
+            permitted_dependencies=(
+                CapabilityReference(
+                    capability_id=OptionalOutputSource.spec.capability_id,
+                    version=OptionalOutputSource.spec.version,
+                ),
+            ),
+        ),
+        registry,
+    )
+    assert assessment.disposition=='clarification_required'
+    assert 'Missing validated input' in assessment.questions[0]
 
 
 def plan():

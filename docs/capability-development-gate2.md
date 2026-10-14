@@ -27,7 +27,11 @@ existing verification requirement kinds gain `syntax` and `security`; the six
 Gate 1 mandatory kinds and original acceptance checks remain required. No
 passing import, generated unit test or metadata report authorizes execution.
 
-`CandidateLifecycleRecord` documents append-only versioned transitions:
+`CandidateLifecycleRecord` documents append-only versioned transitions. The
+first record must be revision 1 in `proposed` state and cannot claim a generated
+package or verification evidence. `CandidateLifecycleChain` requires a complete
+revision sequence, exact predecessor receipt hashes, a stable request/package
+identity, and the declared transition order:
 
 ```text
 proposed -> generated -> tested -> verified -> approved -> active
@@ -38,6 +42,9 @@ verification stays at `tested`; unapproved candidates cannot progress. `active`
 can describe only isolated execution in a fresh offline-review registry at this
 gate. Records and `CandidateApproval` are nonauthorizing interoperability
 receipts, not authentication or commercial/scientific admission mechanisms.
+Hash-link validation detects broken or reordered receipt histories; it does not
+authenticate the reviewer, evidence author, or claim. A lifecycle state or a
+valid hash chain alone must never be used as execution/admission authority.
 
 Production/API source execution stays disabled. Neither a lifecycle record nor
 an approval JSON file makes source callable in the production World runtime.

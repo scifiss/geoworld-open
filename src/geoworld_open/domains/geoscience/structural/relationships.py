@@ -290,7 +290,11 @@ def structural_objects(result):
 
 
 def _verify_structural_spatial_object(world,state_id,obj,context):
-    if not isinstance(context,StructuralWorldResult) or state_id!=context.final_state_id:
+    if (
+        not isinstance(context,StructuralWorldResult)
+        or world.world_id!=context.world.world_id
+        or state_id!=context.final_state_id
+    ):
         raise ValueError('structural geometry verification context is invalid')
     expected=next(
         (

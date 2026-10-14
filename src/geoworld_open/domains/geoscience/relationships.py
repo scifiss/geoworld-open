@@ -25,6 +25,7 @@ class SpatialObject(ContractModel):
 @dataclass(frozen=True)
 class _GeometryVerification:
     adapter_id: str
+    world_id: str
     state_id: str
     object_sha256: str
     representations: tuple[Representation, ...]
@@ -145,6 +146,7 @@ def _attach_geometry_verification(
         '_verification',
         _GeometryVerification(
             adapter_id=adapter_id,
+            world_id=world.world_id,
             state_id=state_id,
             object_sha256=_object_sha256(obj),
             representations=tuple(source_records),
@@ -160,6 +162,8 @@ def _require_verified_spatial_object(world: World, state_id: str, obj: SpatialOb
         raise ValueError('caller-provided geometry is unverified; use a trusted source adapter')
     if verification.state_id!=state_id:
         raise ValueError('verified geometry is bound to a different WorldState')
+    if verification.world_id!=world.world_id:
+        raise ValueError('verified geometry is bound to a different World identity')
     if verification.object_sha256!=_object_sha256(obj):
         raise ValueError('verified geometry or its evidence binding changed after verification')
     _validate_spatial_frame(world,obj)

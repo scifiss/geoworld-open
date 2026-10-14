@@ -20,7 +20,7 @@ class CapabilityAdapter:
         spec = capability.spec
         self.metadata = CapabilityMetadata(spec.capability_id, spec.version, spec.law_name or spec.capability_id,
             requires=tuple(variable_contract(item) for item in spec.inputs if item.required),
-            produces=tuple(variable_contract(item) for item in spec.outputs),
+            produces=tuple(variable_contract(item) for item in spec.outputs if item.required),
             assumptions=spec.assumptions, references=spec.references, deterministic=spec.deterministic)
 
     def execute(self, dataset, context):
@@ -39,7 +39,10 @@ class CapabilityAdapter:
         issues=_validate_variables(result.dataset,self.capability.spec.outputs,owner='output')
         if issues:
             raise ValueError('Plugin output violates its public contract: '+str(issues))
-        fragment=result.dataset[[item.name for item in self.metadata.produces]]
+        declared_outputs=self.capability.spec.outputs
+        fragment=result.dataset[
+            [item.name for item in declared_outputs if item.name in result.dataset]
+        ]
         return CapabilityResult(fragment, result.diagnostics)
 
 
@@ -65,7 +68,11 @@ def assess_capability_gap(request: CapabilityDevelopmentRequest, registry: Capab
             return clarify('The requested version is unavailable; approve an explicit compatible version.')
         return CapabilityGapAssessment(request_id=request.request_id, disposition='development_required',
             reason='The requested operation is not registered; no substitute or scenario was selected.', missing=(request.operation,))
-    declared = {item.name:variable_contract(item) for item in root.outputs}
+    declared = {
+        item.name:variable_contract(item)
+        for item in root.outputs
+        if item.required
+    }
     def compatible(required,produced):
         if produced is None or required.name!=produced.name:
             return False
@@ -99,7 +106,8 @@ def assess_capability_gap(request: CapabilityDevelopmentRequest, registry: Capab
             if not required.required:
                 continue
             producers=[candidate for candidate in specs if (candidate.capability_id,candidate.version) in permitted
-                       and any(compatible(contract,variable_contract(output)) for output in candidate.outputs)]
+                       and any(output.required and compatible(contract,variable_contract(output))
+                               for output in candidate.outputs)]
             if len(producers)!=1:
                 raise ValueError(('Missing validated input or unique producer: ' if not producers else 'Ambiguous producer for: ')+required.name)
             visit(producers[0])
