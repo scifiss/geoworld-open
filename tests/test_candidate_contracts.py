@@ -136,3 +136,63 @@ def test_lifecycle_chain_rejects_forged_predecessor_and_is_non_authorizing():
     )
     with pytest.raises(ValidationError,match='predecessor hash'):
         CandidateLifecycleChain(records=(proposed,generated))
+
+
+def test_lifecycle_chain_preserves_historical_receipt_hashes_and_current_hashes():
+    import json
+    from hashlib import sha256
+
+    legacy_proposed = {
+        'candidate_id': 'candidate:legacy',
+        'revision': 1,
+        'state': 'proposed',
+        'request_sha256': 'a'*64,
+        'package_sha256': None,
+        'previous_sha256': None,
+        'evidence_sha256': None,
+        'reason': 'Historical proposal',
+        'activation_scope': 'disabled',
+    }
+    legacy_hash = sha256(json.dumps(
+        legacy_proposed, sort_keys=True, separators=(',', ':'), ensure_ascii=True, allow_nan=False,
+    ).encode()).hexdigest()
+    legacy_generated = {
+        'candidate_id': 'candidate:legacy',
+        'revision': 2,
+        'state': 'generated',
+        'request_sha256': 'a'*64,
+        'package_sha256': 'b'*64,
+        'previous_sha256': legacy_hash,
+        'evidence_sha256': None,
+        'reason': 'Historical generation',
+        'activation_scope': 'disabled',
+    }
+    proposed = CandidateLifecycleRecord.model_validate(legacy_proposed)
+    generated = CandidateLifecycleRecord.model_validate(legacy_generated)
+    assert candidate_lifecycle_record_sha256(legacy_proposed) == legacy_hash
+    assert candidate_lifecycle_record_sha256(proposed, recorded_fields=True) == legacy_hash
+    assert CandidateLifecycleChain(records=(proposed, generated)).execution_authorized is False
+
+    current_proposed = CandidateLifecycleRecord(
+        candidate_id='candidate:current',
+        revision=1,
+        state='proposed',
+        request_sha256='c'*64,
+        reason='Current proposal',
+    )
+    current_hash = candidate_lifecycle_record_sha256(current_proposed)
+    current_generated = CandidateLifecycleRecord(
+        candidate_id='candidate:current',
+        revision=2,
+        state='generated',
+        request_sha256='c'*64,
+        package_sha256='d'*64,
+        previous_sha256=current_hash,
+        reason='Current generation',
+    )
+    serialized = tuple(
+        CandidateLifecycleRecord.model_validate_json(record.model_dump_json())
+        for record in (current_proposed, current_generated)
+    )
+    assert CandidateLifecycleChain(records=serialized).execution_authorized is False
+    assert serialized[1].previous_sha256 == candidate_lifecycle_record_sha256(serialized[0])

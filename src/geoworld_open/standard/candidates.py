@@ -4,6 +4,7 @@ These are receipts, not permission to import or register candidate source.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from hashlib import sha256
 from pathlib import PurePosixPath
 from typing import Literal, Protocol
@@ -186,10 +187,23 @@ class CandidateLifecycleRecord(ContractModel):
         return self
 
 
-def candidate_lifecycle_record_sha256(record: CandidateLifecycleRecord) -> str:
-    """Hash a canonical immutable receipt for append-only predecessor linking."""
+def candidate_lifecycle_record_sha256(
+    record: CandidateLifecycleRecord | Mapping[str, object],
+    *,
+    recorded_fields: bool = False,
+) -> str:
+    """Hash the receipt's canonical fields, optionally preserving a parsed legacy shape.
+
+    Mapping input hashes exactly the serialized fields. For model input, the
+    default retains the current full-contract hash; ``recorded_fields=True``
+    omits defaults absent from a parsed historical receipt.
+    """
+    if isinstance(record, Mapping):
+        payload = dict(record)
+    else:
+        payload = record.model_dump(mode='json', exclude_unset=recorded_fields)
     payload=json.dumps(
-        record.model_dump(mode='json'),
+        payload,
         sort_keys=True,
         separators=(',',':'),
         ensure_ascii=True,
@@ -224,7 +238,11 @@ class CandidateLifecycleChain(ContractModel):
                 or current.request_sha256!=first.request_sha256
             ):
                 raise ValueError('lifecycle records must retain candidate, request, and contiguous revisions')
-            if current.previous_sha256!=candidate_lifecycle_record_sha256(previous):
+            valid_hashes = {
+                candidate_lifecycle_record_sha256(previous),
+                candidate_lifecycle_record_sha256(previous, recorded_fields=True),
+            }
+            if current.previous_sha256 not in valid_hashes:
                 raise ValueError('lifecycle predecessor hash does not match the previous immutable receipt')
             if current.state not in allowed[previous.state]:
                 raise ValueError(
