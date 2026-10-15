@@ -187,21 +187,37 @@ class CandidateLifecycleRecord(ContractModel):
         return self
 
 
+LEGACY_CANDIDATE_LIFECYCLE_FIELDS = frozenset({
+    'candidate_id', 'revision', 'state', 'request_sha256', 'package_sha256',
+    'previous_sha256', 'evidence_sha256', 'reason', 'activation_scope',
+})
+
+
 def candidate_lifecycle_record_sha256(
     record: CandidateLifecycleRecord | Mapping[str, object],
     *,
-    recorded_fields: bool = False,
+    schema: Literal['current', 'legacy'] | None = None,
 ) -> str:
-    """Hash the receipt's canonical fields, optionally preserving a parsed legacy shape.
-
-    Mapping input hashes exactly the serialized fields. For model input, the
-    default retains the current full-contract hash; ``recorded_fields=True``
-    omits defaults absent from a parsed historical receipt.
-    """
+    """Hash a current or explicitly supported historical lifecycle receipt."""
+    current_fields = frozenset(CandidateLifecycleRecord.model_fields)
+    legacy_fields = LEGACY_CANDIDATE_LIFECYCLE_FIELDS
+    if schema not in (None, 'current', 'legacy'):
+        raise ValueError('unknown lifecycle receipt schema')
     if isinstance(record, Mapping):
         payload = dict(record)
+        fields = frozenset(payload)
+        if schema is None:
+            schema = 'current' if fields == current_fields else 'legacy' if fields == legacy_fields else None
+        expected_fields = current_fields if schema == 'current' else legacy_fields
+        if schema is None or fields != expected_fields:
+            raise ValueError('lifecycle receipt must match the current or documented legacy schema')
     else:
-        payload = record.model_dump(mode='json', exclude_unset=recorded_fields)
+        schema = schema or 'current'
+        payload = record.model_dump(mode='json')
+        if schema == 'legacy':
+            payload.pop('execution_authorized')
+            if frozenset(payload) != legacy_fields:
+                raise ValueError('current lifecycle record cannot be represented by the documented legacy schema')
     payload=json.dumps(
         payload,
         sort_keys=True,
@@ -240,7 +256,7 @@ class CandidateLifecycleChain(ContractModel):
                 raise ValueError('lifecycle records must retain candidate, request, and contiguous revisions')
             valid_hashes = {
                 candidate_lifecycle_record_sha256(previous),
-                candidate_lifecycle_record_sha256(previous, recorded_fields=True),
+                candidate_lifecycle_record_sha256(previous, schema='legacy'),
             }
             if current.previous_sha256 not in valid_hashes:
                 raise ValueError('lifecycle predecessor hash does not match the previous immutable receipt')
