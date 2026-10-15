@@ -4,6 +4,7 @@ These are receipts, not permission to import or register candidate source.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from hashlib import sha256
 from pathlib import PurePosixPath
 from typing import Literal, Protocol
@@ -186,10 +187,43 @@ class CandidateLifecycleRecord(ContractModel):
         return self
 
 
-def candidate_lifecycle_record_sha256(record: CandidateLifecycleRecord) -> str:
-    """Hash a canonical immutable receipt for append-only predecessor linking."""
+LEGACY_CANDIDATE_LIFECYCLE_FIELDS = frozenset({
+    'candidate_id', 'revision', 'state', 'request_sha256', 'package_sha256',
+    'previous_sha256', 'evidence_sha256', 'reason', 'activation_scope',
+})
+
+
+def candidate_lifecycle_record_sha256(
+    record: CandidateLifecycleRecord | Mapping[str, object],
+    *,
+    schema: Literal['current', 'legacy'] | None = None,
+) -> str:
+    """Hash a current or explicitly supported historical lifecycle receipt."""
+    current_fields = frozenset(CandidateLifecycleRecord.model_fields)
+    legacy_fields = LEGACY_CANDIDATE_LIFECYCLE_FIELDS
+    if schema not in (None, 'current', 'legacy'):
+        raise ValueError('unknown lifecycle receipt schema')
+    if isinstance(record, Mapping):
+        payload = dict(record)
+        fields = frozenset(payload)
+        if schema is None:
+            schema = 'current' if fields == current_fields else 'legacy' if fields == legacy_fields else None
+        expected_fields = current_fields if schema == 'current' else legacy_fields
+        if schema is None or fields != expected_fields:
+            raise ValueError('lifecycle receipt must match the current or documented legacy schema')
+        if schema == 'current' and payload['execution_authorized'] is not False:
+            raise ValueError('lifecycle receipts cannot authorize execution')
+    else:
+        if record.execution_authorized is not False:
+            raise ValueError('lifecycle receipts cannot authorize execution')
+        schema = schema or 'current'
+        payload = record.model_dump(mode='json')
+        if schema == 'legacy':
+            payload.pop('execution_authorized')
+            if frozenset(payload) != legacy_fields:
+                raise ValueError('current lifecycle record cannot be represented by the documented legacy schema')
     payload=json.dumps(
-        record.model_dump(mode='json'),
+        payload,
         sort_keys=True,
         separators=(',',':'),
         ensure_ascii=True,
@@ -206,6 +240,8 @@ class CandidateLifecycleChain(ContractModel):
 
     @model_validator(mode='after')
     def append_only_progression(self):
+        if any(record.execution_authorized is not False for record in self.records):
+            raise ValueError('lifecycle receipts cannot authorize execution')
         first=self.records[0]
         if first.revision!=1 or first.state!='proposed' or first.previous_sha256 is not None:
             raise ValueError('candidate lifecycle chain must begin with revision 1 proposed')
@@ -224,7 +260,11 @@ class CandidateLifecycleChain(ContractModel):
                 or current.request_sha256!=first.request_sha256
             ):
                 raise ValueError('lifecycle records must retain candidate, request, and contiguous revisions')
-            if current.previous_sha256!=candidate_lifecycle_record_sha256(previous):
+            valid_hashes = {
+                candidate_lifecycle_record_sha256(previous),
+                candidate_lifecycle_record_sha256(previous, schema='legacy'),
+            }
+            if current.previous_sha256 not in valid_hashes:
                 raise ValueError('lifecycle predecessor hash does not match the previous immutable receipt')
             if current.state not in allowed[previous.state]:
                 raise ValueError(
