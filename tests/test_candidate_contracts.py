@@ -176,6 +176,11 @@ def test_lifecycle_chain_preserves_historical_receipt_hashes_and_current_hashes(
     assert reloaded_legacy.records[2].previous_sha256 == digest(generated)
     with pytest.raises(ValueError, match='documented legacy schema'):
         candidate_lifecycle_record_sha256({'candidate_id': 'candidate:partial'})
+    authorized = reloaded_legacy.records[0].model_copy(update={'execution_authorized': True})
+    with pytest.raises(ValueError, match='cannot authorize'):
+        candidate_lifecycle_record_sha256(authorized, schema='legacy')
+    with pytest.raises(ValidationError, match='cannot authorize'):
+        CandidateLifecycleChain(records=(authorized,))
 
     changed_proposal = reloaded_legacy.records[0].model_copy(update={'reason': 'Altered historical content'})
     with pytest.raises(ValidationError, match='predecessor hash'):

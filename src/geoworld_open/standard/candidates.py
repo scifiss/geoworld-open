@@ -211,7 +211,11 @@ def candidate_lifecycle_record_sha256(
         expected_fields = current_fields if schema == 'current' else legacy_fields
         if schema is None or fields != expected_fields:
             raise ValueError('lifecycle receipt must match the current or documented legacy schema')
+        if schema == 'current' and payload['execution_authorized'] is not False:
+            raise ValueError('lifecycle receipts cannot authorize execution')
     else:
+        if record.execution_authorized is not False:
+            raise ValueError('lifecycle receipts cannot authorize execution')
         schema = schema or 'current'
         payload = record.model_dump(mode='json')
         if schema == 'legacy':
@@ -236,6 +240,8 @@ class CandidateLifecycleChain(ContractModel):
 
     @model_validator(mode='after')
     def append_only_progression(self):
+        if any(record.execution_authorized is not False for record in self.records):
+            raise ValueError('lifecycle receipts cannot authorize execution')
         first=self.records[0]
         if first.revision!=1 or first.state!='proposed' or first.previous_sha256 is not None:
             raise ValueError('candidate lifecycle chain must begin with revision 1 proposed')
