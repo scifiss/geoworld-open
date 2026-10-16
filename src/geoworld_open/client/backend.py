@@ -15,6 +15,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
+from pydantic import ValidationError
+
 from geoworld_open.client.models import (
     AuthResponse,
     CapabilityCatalog,
@@ -152,7 +154,13 @@ class GeoWorldBackendClient:
             prompt=prompt, project_id=project_id, has_pending_build=has_pending_build,
             active_seismic_dataset_id=active_seismic_dataset_id, context=context,
         )
-        return StudioDecision.model_validate(self._json_request("POST", "/intent/interpret", request.model_dump(mode="json")))
+        payload = self._json_request(
+            "POST", "/intent/interpret", request.model_dump(mode="json")
+        )
+        try:
+            return StudioDecision.model_validate(payload)
+        except ValidationError as exc:
+            raise GeoWorldClientError("The backend returned an invalid Studio decision.") from exc
 
     def continue_experiment(self, prompt, *, conversation_id=None, project_id=None):
         from geoworld_open.client.scientific_experiment import (
