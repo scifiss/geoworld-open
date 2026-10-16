@@ -2,6 +2,7 @@
 from typing import Annotated, Any, Literal
 from geoworld_open.client.semantic_action import SemanticAction, NewBuild
 from geoworld_open.client.scientific_workflow import ScientificExperimentContext, ScientificWorkflowPreview
+from geoworld_open.client.scientific_investigation import ScientificInvestigationPlan
 
 from pydantic import Field, field_validator, model_validator
 import json
@@ -90,6 +91,7 @@ class StudioDecision(ReferenceContract):
     route: Literal["ask_question", "build_model", "marmousi_model", "deepwave_reference", "model_rtm", "model_forward", "bounded_fwi", "configurable_marmousi_fwi", "las_quicklook", "seismic_explorer", "blocked", "scientific_workflow"]
     scientific: ScientificWorkflowPreview | None = None
     evidence_assessment: EvidenceAssessmentReceipt | None = None
+    investigation_plan: ScientificInvestigationPlan | None = None
     message: str
     llm: dict[str, Any] | None = None
     build_spec: dict[str, Any] | None = None

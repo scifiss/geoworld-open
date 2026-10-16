@@ -280,9 +280,57 @@ def render_request(api, submit, render_las):
         from geoworld_open.studio_scientific import render_scientific_request
         render_scientific_request(api, submit, decision)
         return
-    if getattr(decision, "evidence_assessment", None):
+    if getattr(decision, "evidence_assessment", None) and not getattr(decision, "investigation_plan", None):
         # The single Assistant already contains this answer. Keep the active
         # numerical workspace separate from the latest conversational response.
+        return
+    if getattr(decision, "investigation_plan", None):
+        plan = decision.investigation_plan
+        st.subheader("Understanding")
+        st.write(plan.understanding)
+        if plan.requested_products:
+            st.subheader("Requested products")
+            for item in plan.requested_products:
+                st.write(f"- {item}")
+        st.subheader("Available scientific evidence")
+        if plan.evidence:
+            for item in plan.evidence:
+                st.markdown(f"**{item.kind.replace('_', ' ').title()} · {item.status.replace('_', ' ').title()}**")
+                st.write(item.summary)
+        else:
+            st.write("No verified scientific evidence was available for this request.")
+        if plan.findings:
+            st.subheader("What the evidence supports")
+            for finding in plan.findings:
+                st.markdown(f"**{finding.claim_type.replace('_', ' ').title()}** — {finding.statement}")
+        st.subheader("Recommended investigation")
+        for index, step in enumerate(plan.steps, start=1):
+            st.markdown(f"**{index}. {step.method}** · {step.readiness.title()}")
+            st.write(step.rationale)
+            if step.required_evidence:
+                st.caption("Needed: " + "; ".join(step.required_evidence))
+            if step.expected_products:
+                st.caption("Expected: " + "; ".join(step.expected_products))
+        if plan.competing_explanations:
+            st.subheader("Competing explanations")
+            for item in plan.competing_explanations:
+                st.write(f"- {item}")
+        if plan.uncertainties:
+            st.subheader("Uncertainty and limitations")
+            for item in plan.uncertainties:
+                st.write(f"- {item}")
+        if plan.clarification_questions:
+            st.subheader("Clarification")
+            for item in plan.clarification_questions:
+                st.write(f"- {item}")
+        with st.expander("Evidence references and validation detail"):
+            for item in plan.evidence:
+                st.write(f"{item.evidence_id}: {item.source_ref or 'no source reference'}")
+                if item.metadata:
+                    st.write(item.metadata)
+            for step in plan.steps:
+                st.write(f"{step.step_id}: " + (", ".join(step.validation) or "No validation defined"))
+        st.caption("Planning only. No scientific job was started; no candidate was activated.")
         return
     if decision.route == 'build_model':
         prepare = not st.session_state.get('studio_prepare_attempted', False)
