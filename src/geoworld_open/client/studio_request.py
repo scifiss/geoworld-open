@@ -2,6 +2,7 @@
 from typing import Annotated, Any, Literal
 from geoworld_open.client.semantic_action import SemanticAction, NewBuild
 from geoworld_open.client.scientific_workflow import ScientificExperimentContext, ScientificWorkflowPreview
+from geoworld_open.client.scientific_investigation import ScientificInvestigationPlan
 
 from pydantic import Field, field_validator, model_validator
 import json
@@ -90,6 +91,7 @@ class StudioDecision(ReferenceContract):
     route: Literal["ask_question", "build_model", "marmousi_model", "deepwave_reference", "model_rtm", "model_forward", "bounded_fwi", "configurable_marmousi_fwi", "las_quicklook", "seismic_explorer", "blocked", "scientific_workflow"]
     scientific: ScientificWorkflowPreview | None = None
     evidence_assessment: EvidenceAssessmentReceipt | None = None
+    investigation_plan: ScientificInvestigationPlan | None = None
     message: str
     llm: dict[str, Any] | None = None
     build_spec: dict[str, Any] | None = None
@@ -98,3 +100,23 @@ class StudioDecision(ReferenceContract):
     continues_build: bool = False
     action: ContextAction | None = None
     command: str | None = Field(default=None, max_length=8000)
+
+    @model_validator(mode="after")
+    def investigation_is_non_executable(self):
+        if self.investigation_plan is None:
+            return self
+        if (
+            self.route != "ask_question"
+            or self.scientific is not None
+            or self.action not in {None, "general_question"}
+            or self.semantic_action is not None
+            or self.build_spec is not None
+            or self.replay_integrity is not None
+            or self.continues_build
+            or self.command is not None
+            or self.interpretation.operation not in {"question", "scientific"}
+            or self.interpretation.prepare_only
+            or self.interpretation.context_action not in {None, "general_question"}
+        ):
+            raise ValueError("Investigation plans must use the non-executing ask_question route")
+        return self

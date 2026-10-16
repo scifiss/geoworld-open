@@ -265,11 +265,23 @@ def submit_request(api, prompt):
 
 def render_request(api, submit, render_las):
     """Render the accepted request without adding a workflow-specific composer."""
+    from pydantic import ValidationError
+    from geoworld_open.client.studio_request import StudioDecision
+
     prompt = st.session_state.get("studio_request_prompt", "")
     if st.session_state.get("studio_request_error"):
         st.error(st.session_state["studio_request_error"])
     decision = st.session_state.get("studio_decision")
-    if decision is None or not hasattr(decision, "route"):
+    if decision is None:
+        return
+    try:
+        decision = StudioDecision.model_validate(
+            decision.model_dump(mode="python")
+            if isinstance(decision, StudioDecision)
+            else decision
+        )
+    except (ValidationError, TypeError, ValueError):
+        st.error("The Studio decision is invalid and cannot be rendered or executed. Please submit the request again.")
         return
     if decision.llm and decision.route not in {'build_model','scientific_workflow'}:
         st.caption(execution_model_line(decision.llm, purpose="Request understanding"))
@@ -280,9 +292,110 @@ def render_request(api, submit, render_las):
         from geoworld_open.studio_scientific import render_scientific_request
         render_scientific_request(api, submit, decision)
         return
-    if getattr(decision, "evidence_assessment", None):
+    if getattr(decision, "evidence_assessment", None) and not getattr(decision, "investigation_plan", None):
         # The single Assistant already contains this answer. Keep the active
         # numerical workspace separate from the latest conversational response.
+        return
+    if getattr(decision, "investigation_plan", None):
+        plan = decision.investigation_plan
+        st.subheader("Plan readiness")
+        st.write(plan.readiness.title())
+        if plan.readiness in {"blocked", "unsupported"}:
+            st.warning(
+                "This plan cannot currently be executed. Reusable individual steps do not make the overall investigation executable."
+            )
+        st.subheader("Understanding")
+        st.write(plan.understanding)
+        st.subheader("Planning objectives")
+        for item in plan.objectives:
+            st.write(f"- {item}")
+        if plan.requested_products:
+            st.subheader("Requested products")
+            for item in plan.requested_products:
+                st.write(f"- {item}")
+        st.subheader("Available scientific evidence")
+        if plan.evidence:
+            for item in plan.evidence:
+                st.markdown(f"**{item.kind.replace('_', ' ').title()} · {item.status.replace('_', ' ').title()}**")
+                st.write(item.summary)
+        else:
+            st.write("No verified scientific evidence was available for this request.")
+        evidence_by_id = {item.evidence_id: item for item in plan.evidence}
+        if plan.findings:
+            finding_groups = (
+                (
+                    "Evidence-backed findings",
+                    {"measured_observation", "calculated_result", "supported_inference"},
+                ),
+                ("User-reported observations", {"user_reported_observation"}),
+                (
+                    "Hypotheses and unestablished statements",
+                    {"hypothesis", "not_established"},
+                ),
+            )
+            for heading, claim_types in finding_groups:
+                findings = [item for item in plan.findings if item.claim_type in claim_types]
+                if not findings:
+                    continue
+                st.subheader(heading)
+                for finding in findings:
+                    st.markdown(f"**{finding.claim_type.replace('_', ' ').title()}** — {finding.statement}")
+                    if finding.evidence_refs:
+                        cited = [
+                            f"{evidence_ref} ({evidence_by_id[evidence_ref].kind.replace('_', ' ')}, "
+                            f"{evidence_by_id[evidence_ref].status.replace('_', ' ')})"
+                            for evidence_ref in finding.evidence_refs
+                        ]
+                        st.caption("Evidence references: " + "; ".join(cited))
+        st.subheader("Recommended investigation")
+        steps_by_id = {step.step_id: step for step in plan.steps}
+        for index, step in enumerate(plan.steps, start=1):
+            st.markdown(f"**{index}. {step.question}** · {step.readiness.title()}")
+            st.write("Recommended method: " + step.method)
+            st.write(step.rationale)
+            if step.capability_id is not None:
+                st.caption(f"Capability: {step.capability_id} · Version: {step.capability_version}")
+            if step.depends_on:
+                dependencies = [
+                    f"{step_id} ({steps_by_id[step_id].readiness.title()})"
+                    for step_id in step.depends_on
+                ]
+                st.caption("Depends on: " + "; ".join(dependencies))
+            if step.evidence_refs:
+                cited = [
+                    f"{evidence_ref} ({evidence_by_id[evidence_ref].kind.replace('_', ' ')}, "
+                    f"{evidence_by_id[evidence_ref].status.replace('_', ' ')})"
+                    for evidence_ref in step.evidence_refs
+                ]
+                st.caption("Step evidence references: " + "; ".join(cited))
+            if step.assumptions:
+                st.caption("Assumptions: " + "; ".join(step.assumptions))
+            if step.limitations:
+                st.caption("Limitations: " + "; ".join(step.limitations))
+            if step.required_evidence:
+                st.caption("Needed: " + "; ".join(step.required_evidence))
+            if step.expected_products:
+                st.caption("Expected: " + "; ".join(step.expected_products))
+        if plan.competing_explanations:
+            st.subheader("Competing explanations")
+            for item in plan.competing_explanations:
+                st.write(f"- {item}")
+        if plan.uncertainties:
+            st.subheader("Uncertainty and limitations")
+            for item in plan.uncertainties:
+                st.write(f"- {item}")
+        if plan.clarification_questions:
+            st.subheader("Clarification")
+            for item in plan.clarification_questions:
+                st.write(f"- {item}")
+        with st.expander("Evidence references and validation detail"):
+            for item in plan.evidence:
+                st.write(f"{item.evidence_id}: {item.source_ref or 'no source reference'}")
+                if item.metadata:
+                    st.write(item.metadata)
+            for step in plan.steps:
+                st.write(f"{step.step_id}: " + (", ".join(step.validation) or "No validation defined"))
+        st.caption("Planning only. No scientific job was started; no candidate was activated.")
         return
     if decision.route == 'build_model':
         prepare = not st.session_state.get('studio_prepare_attempted', False)

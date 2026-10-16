@@ -406,3 +406,38 @@ def test_studio_context_rejects_inconsistent_view_and_execution_eligibility():
             seismic_view=SeismicViewRequest(dataset_id="b" * 24))
     with pytest.raises(ValidationError, match="valid prepared build"):
         StudioTaskContext(execution_allowed=True)
+
+
+def test_interpret_studio_sanitizes_invalid_investigation_decision():
+    response = {
+        "interpretation": {"operation": "scientific"},
+        "route": "scientific_workflow",
+        "message": "Contradictory plan and execution preview.",
+        "scientific": {
+            "goal": {"objective": "baseline_avo"},
+            "message": "Execution preview",
+            "execution_allowed": True,
+            "automatic_execution": True,
+        },
+        "investigation_plan": {
+            "request_text": "Plan a survey comparison.",
+            "understanding": "Assess a possible change.",
+            "objectives": ["Assess repeatability"],
+            "steps": [{
+                "step_id": "compare",
+                "question": "Are the surveys comparable?",
+                "method": "Acquisition QC",
+                "rationale": "Establish compatible support first.",
+                "readiness": "ready",
+            }],
+            "readiness": "ready",
+            "execution_authorized": False,
+        },
+    }
+    client = GeoWorldBackendClient(
+        "https://example.test",
+        transport=FakeTransport([(200, response)]),
+    )
+
+    with pytest.raises(GeoWorldClientError, match="invalid Studio decision"):
+        client.interpret_studio("Compare surveys.")

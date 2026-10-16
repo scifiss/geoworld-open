@@ -51,6 +51,12 @@ from geoworld_open.client.seismic import (
     SeismicViewRequest,
     SeismicWindow,
 )
+from geoworld_open.client.scientific_investigation import (
+    InvestigationEvidence,
+    InvestigationFinding,
+    InvestigationStep,
+    ScientificInvestigationPlan,
+)
 
 __all__ = [
     "AcquisitionRequest",
@@ -63,6 +69,9 @@ __all__ = [
     "GeoWorldBackendClient",
     "GeoWorldClientError",
     "InversionRequest",
+    "InvestigationEvidence",
+    "InvestigationFinding",
+    "InvestigationStep",
     "JobCreateRequest",
     "JobCreateResponse",
     "JobResult",
@@ -82,6 +91,7 @@ __all__ = [
     "ResolvedMarmousiAcquisition",
     "RequestedOutputs",
     "ScientificExperimentDraft",
+    "ScientificInvestigationPlan",
     "SeismicAnalysisRequest",
     "SeismicAnalysisResult",
     "SeismicConversationRequest",
