@@ -179,6 +179,18 @@ def test_missing_user_report_remains_missing_not_verified():
     assert evidence.status == "missing"
 
 
+def test_user_reported_evidence_requires_its_actual_source_reference():
+    for source_ref in (None, "", "  "):
+        with pytest.raises(ValidationError, match="User-reported investigation evidence requires"):
+            InvestigationEvidence(
+                evidence_id="evidence:reported",
+                kind="user_report",
+                status="user_reported",
+                summary="A requester-provided observation.",
+                source_ref=source_ref,
+            )
+
+
 @pytest.mark.parametrize(
     "claim_type",
     ["measured_observation", "calculated_result", "supported_inference", "user_reported_observation"],

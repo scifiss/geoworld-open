@@ -36,6 +36,8 @@ class InvestigationEvidence(ReferenceContract):
             )
         if self.status == "verified" and not (self.source_ref and self.source_ref.strip()):
             raise ValueError("Verified investigation evidence requires a source reference")
+        if self.status == "user_reported" and not (self.source_ref and self.source_ref.strip()):
+            raise ValueError("User-reported investigation evidence requires a source reference")
         return self
 
 
