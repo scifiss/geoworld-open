@@ -163,8 +163,59 @@ def test_established_findings_reject_inadmissible_evidence(claim_type, evidence_
         statement="This must not be presented as an established result.",
         evidence_refs=[evidence.evidence_id],
     )
-    with pytest.raises(ValidationError, match="require verified|require verified measurement|require verified saved"):
+    with pytest.raises(ValidationError, match="unverified evidence|qualifying verified evidence"):
         make_plan(evidence=[evidence], findings=[finding])
+
+
+def test_verified_supplemental_provenance_is_allowed_beside_qualifying_evidence():
+    saved_result = InvestigationEvidence(
+        evidence_id="result:saved",
+        kind="saved_scientific_result",
+        status="verified",
+        summary="Verified result.",
+        source_ref="b" * 32,
+    )
+    input_data = InvestigationEvidence(
+        evidence_id="dataset:input",
+        kind="seismic_dataset",
+        status="verified",
+        summary="Verified input data.",
+        source_ref="c" * 24,
+    )
+    reference = InvestigationEvidence(
+        evidence_id="reference:method",
+        kind="scientific_reference",
+        status="verified",
+        summary="Methodological context.",
+        source_ref="literature:method",
+    )
+    plan = make_plan(
+        evidence=[saved_result, input_data, reference],
+        findings=[
+            InvestigationFinding(
+                claim_type="calculated_result",
+                statement="A saved calculation is supported by the verified result.",
+                evidence_refs=[saved_result.evidence_id, input_data.evidence_id],
+            ),
+            InvestigationFinding(
+                claim_type="supported_inference",
+                statement="The interpretation uses verified measurements and context.",
+                evidence_refs=[input_data.evidence_id, reference.evidence_id],
+            ),
+        ],
+    )
+    assert len(plan.findings) == 2
+
+    invalid = plan.model_dump()
+    invalid["evidence"].append({
+        **input_data.model_dump(),
+        "evidence_id": "dataset:unavailable",
+        "status": "unavailable",
+        "source_ref": None,
+    })
+    invalid["findings"][0]["evidence_refs"].append("dataset:unavailable")
+    with pytest.raises(ValidationError, match="unverified evidence"):
+        ScientificInvestigationPlan.model_validate(invalid)
 
 
 def test_user_reports_and_verified_calculations_are_distinguished():
@@ -269,6 +320,9 @@ def test_saved_assessment_investigation_plan_renders_without_submitting_a_job(mo
     assert "Plan readiness" in rendered
     assert any("Assumptions: Surveys share acquisition geometry" in str(item) for item in rendered)
     assert any("Limitations: No field difference was computed." in str(item) for item in rendered)
+    assert any("Evidence references: dataset:baseline (seismic dataset, verified)" in str(item) for item in rendered)
+    assert any("Is a repeatable time-lapse amplitude change present?" in str(item) for item in rendered)
+    assert any("Recommended method: Matched-support difference" in str(item) for item in rendered)
 
 
 @pytest.mark.parametrize("readiness", ["blocked", "unsupported"])

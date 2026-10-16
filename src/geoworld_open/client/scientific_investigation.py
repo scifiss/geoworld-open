@@ -106,25 +106,20 @@ class ScientificInvestigationPlan(ReferenceContract):
             if finding.claim_type == "user_reported_observation":
                 if any(item.kind != "user_report" or item.status != "user_reported" for item in cited):
                     raise ValueError("User-reported observations require user-reported evidence")
-            elif finding.claim_type == "measured_observation":
-                if any(
-                    item.status != "verified" or item.kind not in {"seismic_dataset", "well_log"}
-                    for item in cited
-                ):
-                    raise ValueError("Measured observations require verified measurement evidence")
-            elif finding.claim_type == "calculated_result":
-                if any(
-                    item.status != "verified" or item.kind != "saved_scientific_result"
-                    for item in cited
-                ):
-                    raise ValueError("Calculated results require verified saved scientific results")
-            elif finding.claim_type == "supported_inference":
-                admissible_kinds = {
-                    "seismic_dataset", "well_log", "saved_scientific_result", "world_state",
-                }
-                if any(
-                    item.status != "verified" or item.kind not in admissible_kinds
-                    for item in cited
-                ):
-                    raise ValueError("Supported inferences require verified scientific evidence")
+            elif finding.claim_type in {
+                "measured_observation", "calculated_result", "supported_inference",
+            }:
+                qualifying_kinds = {
+                    "measured_observation": {"seismic_dataset", "well_log"},
+                    "calculated_result": {"saved_scientific_result"},
+                    "supported_inference": {
+                        "seismic_dataset", "well_log", "saved_scientific_result", "world_state",
+                    },
+                }[finding.claim_type]
+                if any(item.status != "verified" for item in cited):
+                    raise ValueError("Established findings cannot cite unverified evidence")
+                if not any(item.kind in qualifying_kinds for item in cited):
+                    raise ValueError(
+                        f"{finding.claim_type.replace('_', ' ').title()} findings require qualifying verified evidence"
+                    )
         return self
