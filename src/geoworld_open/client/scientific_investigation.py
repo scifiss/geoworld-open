@@ -1,11 +1,18 @@
 """PUBLIC_STANDARD: a non-authorizing, evidence-linked investigation proposal."""
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, StringConstraints, model_validator
 
 from .reference_experiment import ReferenceContract
 from geoworld_open.world.models import Identifier
+
+PlanTextItem = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000),
+]
+PlanReference = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128),
+]
 
 
 class InvestigationEvidence(ReferenceContract):
@@ -47,7 +54,7 @@ class InvestigationFinding(ReferenceContract):
         "supported_inference", "hypothesis", "not_established",
     ]
     statement: str = Field(min_length=1, max_length=2000)
-    evidence_refs: list[str] = Field(default_factory=list, max_length=32)
+    evidence_refs: list[PlanReference] = Field(default_factory=list, max_length=32)
 
 
 class InvestigationStep(ReferenceContract):
@@ -55,16 +62,16 @@ class InvestigationStep(ReferenceContract):
     question: str = Field(min_length=1, max_length=1000)
     method: str = Field(min_length=1, max_length=300)
     rationale: str = Field(min_length=1, max_length=2000)
-    required_evidence: list[str] = Field(default_factory=list, max_length=32)
-    evidence_refs: list[str] = Field(default_factory=list, max_length=32)
-    expected_products: list[str] = Field(default_factory=list, max_length=20)
+    required_evidence: list[PlanTextItem] = Field(default_factory=list, max_length=32)
+    evidence_refs: list[PlanReference] = Field(default_factory=list, max_length=32)
+    expected_products: list[PlanTextItem] = Field(default_factory=list, max_length=20)
     readiness: Literal["ready", "conditional", "blocked", "unsupported", "unavailable"]
     capability_id: Identifier | None = Field(default=None, max_length=128)
     capability_version: Identifier | None = Field(default=None, max_length=80)
-    depends_on: list[str] = Field(default_factory=list, max_length=32)
-    assumptions: list[str] = Field(default_factory=list, max_length=32)
-    limitations: list[str] = Field(default_factory=list, max_length=32)
-    validation: list[str] = Field(default_factory=list, max_length=32)
+    depends_on: list[PlanReference] = Field(default_factory=list, max_length=32)
+    assumptions: list[PlanTextItem] = Field(default_factory=list, max_length=32)
+    limitations: list[PlanTextItem] = Field(default_factory=list, max_length=32)
+    validation: list[PlanTextItem] = Field(default_factory=list, max_length=32)
 
     @model_validator(mode="after")
     def capability_reference_is_complete(self):
@@ -78,14 +85,14 @@ class ScientificInvestigationPlan(ReferenceContract):
 
     request_text: str = Field(min_length=1, max_length=8000)
     understanding: str = Field(min_length=1, max_length=2000)
-    objectives: list[str] = Field(min_length=1, max_length=12)
-    requested_products: list[str] = Field(default_factory=list, max_length=20)
+    objectives: list[PlanTextItem] = Field(min_length=1, max_length=12)
+    requested_products: list[PlanTextItem] = Field(default_factory=list, max_length=20)
     evidence: list[InvestigationEvidence] = Field(default_factory=list, max_length=64)
     findings: list[InvestigationFinding] = Field(default_factory=list, max_length=32)
     steps: list[InvestigationStep] = Field(min_length=1, max_length=24)
-    competing_explanations: list[str] = Field(default_factory=list, max_length=32)
-    uncertainties: list[str] = Field(default_factory=list, max_length=32)
-    clarification_questions: list[str] = Field(default_factory=list, max_length=12)
+    competing_explanations: list[PlanTextItem] = Field(default_factory=list, max_length=32)
+    uncertainties: list[PlanTextItem] = Field(default_factory=list, max_length=32)
+    clarification_questions: list[PlanTextItem] = Field(default_factory=list, max_length=12)
     readiness: Literal["ready", "conditional", "blocked", "unsupported"]
     execution_authorized: Literal[False] = False
 

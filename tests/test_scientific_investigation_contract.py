@@ -116,6 +116,40 @@ def test_plan_rejects_duplicate_evidence_ids():
 
 
 @pytest.mark.parametrize(
+    "field,value",
+    [
+        ("objectives", [""]),
+        ("requested_products", [" "]),
+        ("competing_explanations", ["x" * 1001]),
+        ("uncertainties", [" "]),
+        ("clarification_questions", ["x" * 1001]),
+    ],
+)
+def test_plan_text_lists_require_bounded_nonblank_items(field, value):
+    payload = make_plan().model_dump()
+    payload[field] = value
+    with pytest.raises(ValidationError):
+        ScientificInvestigationPlan.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("required_evidence", [""]),
+        ("expected_products", ["x" * 1001]),
+        ("assumptions", [" "]),
+        ("limitations", ["x" * 1001]),
+        ("validation", [""]),
+    ],
+)
+def test_step_text_lists_require_bounded_nonblank_items(field, value):
+    payload = make_plan().model_dump()
+    payload["steps"][0][field] = value
+    with pytest.raises(ValidationError):
+        ScientificInvestigationPlan.model_validate(payload)
+
+
+@pytest.mark.parametrize(
     "changes",
     [
         {"capability_id": "cap:time-lapse-difference"},
