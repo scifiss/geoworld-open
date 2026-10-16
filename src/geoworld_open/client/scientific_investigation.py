@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import Field, model_validator
 
 from .reference_experiment import ReferenceContract
+from geoworld_open.world.models import Identifier
 
 
 class InvestigationEvidence(ReferenceContract):
@@ -56,8 +57,8 @@ class InvestigationStep(ReferenceContract):
     evidence_refs: list[str] = Field(default_factory=list, max_length=32)
     expected_products: list[str] = Field(default_factory=list, max_length=20)
     readiness: Literal["ready", "conditional", "blocked", "unsupported", "unavailable"]
-    capability_id: str | None = Field(default=None, max_length=128)
-    capability_version: str | None = Field(default=None, max_length=80)
+    capability_id: Identifier | None = Field(default=None, max_length=128)
+    capability_version: Identifier | None = Field(default=None, max_length=80)
     depends_on: list[str] = Field(default_factory=list, max_length=32)
     assumptions: list[str] = Field(default_factory=list, max_length=32)
     limitations: list[str] = Field(default_factory=list, max_length=32)

@@ -129,6 +129,19 @@ def test_investigation_step_requires_capability_id_and_version_together(changes)
         InvestigationStep.model_validate(step)
 
 
+@pytest.mark.parametrize(
+    "capability_id,capability_version",
+    [("", "1.2.0"), (" ", "1.2.0"), ("cap:time-lapse-difference", "")],
+)
+def test_investigation_step_rejects_blank_capability_references(
+    capability_id, capability_version,
+):
+    step = make_plan().steps[0].model_dump()
+    step.update(capability_id=capability_id, capability_version=capability_version)
+    with pytest.raises(ValidationError):
+        InvestigationStep.model_validate(step)
+
+
 def test_verified_evidence_requires_a_source_reference():
     for source_ref in (None, "", "  "):
         with pytest.raises(ValidationError, match="source reference"):
@@ -399,6 +412,7 @@ def test_saved_assessment_investigation_plan_renders_without_submitting_a_job(mo
     assert any("Step evidence references: dataset:baseline (seismic dataset, verified)" in str(item) for item in rendered)
     assert any("Step evidence references: result:saved (saved scientific result, verified)" in str(item) for item in rendered)
     assert any("Capability: cap:time-lapse-difference · Version: 1.2.0" in str(item) for item in rendered)
+    assert any("Depends on: comparability (Conditional)" in str(item) for item in rendered)
     assert "Evidence-backed findings" in rendered
     assert "User-reported observations" in rendered
     assert "Hypotheses and unestablished statements" in rendered

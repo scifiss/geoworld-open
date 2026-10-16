@@ -348,12 +348,19 @@ def render_request(api, submit, render_las):
                         ]
                         st.caption("Evidence references: " + "; ".join(cited))
         st.subheader("Recommended investigation")
+        steps_by_id = {step.step_id: step for step in plan.steps}
         for index, step in enumerate(plan.steps, start=1):
             st.markdown(f"**{index}. {step.question}** · {step.readiness.title()}")
             st.write("Recommended method: " + step.method)
             st.write(step.rationale)
             if step.capability_id is not None:
                 st.caption(f"Capability: {step.capability_id} · Version: {step.capability_version}")
+            if step.depends_on:
+                dependencies = [
+                    f"{step_id} ({steps_by_id[step_id].readiness.title()})"
+                    for step_id in step.depends_on
+                ]
+                st.caption("Depends on: " + "; ".join(dependencies))
             if step.evidence_refs:
                 cited = [
                     f"{evidence_ref} ({evidence_by_id[evidence_ref].kind.replace('_', ' ')}, "
