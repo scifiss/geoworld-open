@@ -391,6 +391,42 @@ def test_saved_assessment_investigation_plan_renders_without_submitting_a_job(mo
     assert any("Recommended method: Matched-support difference" in str(item) for item in rendered)
 
 
+def test_renderer_shows_step_evidence_when_plan_has_no_findings(monkeypatch):
+    rendered = []
+
+    class Display:
+        session_state = {"studio_request_prompt": "Plan an investigation.", "studio_decision": None}
+
+        def __getattr__(self, name):
+            if name in {"subheader", "write", "markdown", "caption", "warning", "error"}:
+                return lambda value: rendered.append((name, value))
+            if name == "expander":
+                return lambda *_args, **_kwargs: nullcontext()
+            raise AssertionError(f"Unexpected renderer API: {name}")
+
+    plan_data = make_plan().model_dump()
+    plan_data["findings"] = []
+    plan = ScientificInvestigationPlan.model_validate(plan_data)
+    Display.session_state["studio_decision"] = StudioDecision(
+        interpretation=StudioIntent(operation="scientific"),
+        route="ask_question",
+        message="Planning only.",
+        investigation_plan=plan,
+    )
+    monkeypatch.setattr(studio_request, "st", Display())
+
+    studio_request.render_request(
+        api=None,
+        submit=lambda *_a, **_k: pytest.fail("Rendering a plan must not submit a job"),
+        render_las=lambda *_a: pytest.fail("Investigation plans do not open execution"),
+    )
+
+    assert any(
+        name == "caption" and "Step evidence references: dataset:baseline" in value
+        for name, value in rendered
+    )
+
+
 @pytest.mark.parametrize("readiness", ["blocked", "unsupported"])
 def test_renderer_emphasizes_non_executable_overall_readiness(monkeypatch, readiness):
     rendered = []

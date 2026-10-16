@@ -320,8 +320,8 @@ def render_request(api, submit, render_las):
                 st.write(item.summary)
         else:
             st.write("No verified scientific evidence was available for this request.")
+        evidence_by_id = {item.evidence_id: item for item in plan.evidence}
         if plan.findings:
-            evidence_by_id = {item.evidence_id: item for item in plan.evidence}
             finding_groups = (
                 (
                     "Evidence-backed findings",
