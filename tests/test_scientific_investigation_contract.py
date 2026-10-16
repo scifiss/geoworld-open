@@ -340,6 +340,22 @@ def test_investigation_decisions_reject_executable_combinations(changes):
         StudioDecision.model_validate(decision)
 
 
+def test_investigation_plan_cannot_accompany_auto_executable_scientific_preview():
+    with pytest.raises(ValidationError, match="non-executing ask_question"):
+        StudioDecision.model_validate({
+            "interpretation": {"operation": "scientific"},
+            "route": "scientific_workflow",
+            "message": "Plan and execute.",
+            "investigation_plan": make_plan().model_dump(),
+            "scientific": ScientificWorkflowPreview(
+                goal=ScientificGoalAction(objective="baseline_avo"),
+                message="Automatically executable preview",
+                execution_allowed=True,
+                automatic_execution=True,
+            ),
+        })
+
+
 def test_renderer_revalidates_mutated_decision_before_any_execution_path(monkeypatch):
     rendered = []
 
@@ -364,4 +380,22 @@ def test_renderer_revalidates_mutated_decision_before_any_execution_path(monkeyp
         render_las=lambda *_a: pytest.fail("An invalid decision must not render execution"),
     )
 
+    assert rendered and "invalid" in rendered[0].lower()
+
+
+def test_renderer_reports_unvalidated_non_decision_object(monkeypatch):
+    rendered = []
+
+    class Display:
+        session_state = {"studio_request_prompt": "Plan an investigation.", "studio_decision": {}}
+
+        def error(self, value):
+            rendered.append(value)
+
+    monkeypatch.setattr(studio_request, "st", Display())
+    studio_request.render_request(
+        api=None,
+        submit=lambda *_a, **_k: pytest.fail("An unvalidated object must not submit"),
+        render_las=lambda *_a: pytest.fail("An unvalidated object must not render execution"),
+    )
     assert rendered and "invalid" in rendered[0].lower()
