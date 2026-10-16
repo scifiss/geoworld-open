@@ -265,11 +265,23 @@ def submit_request(api, prompt):
 
 def render_request(api, submit, render_las):
     """Render the accepted request without adding a workflow-specific composer."""
+    from pydantic import ValidationError
+    from geoworld_open.client.studio_request import StudioDecision
+
     prompt = st.session_state.get("studio_request_prompt", "")
     if st.session_state.get("studio_request_error"):
         st.error(st.session_state["studio_request_error"])
     decision = st.session_state.get("studio_decision")
-    if decision is None or not hasattr(decision, "route"):
+    if decision is None:
+        return
+    try:
+        decision = StudioDecision.model_validate(
+            decision.model_dump(mode="python")
+            if isinstance(decision, StudioDecision)
+            else decision
+        )
+    except (ValidationError, TypeError, ValueError):
+        st.error("The Studio decision is invalid and cannot be rendered or executed. Please submit the request again.")
         return
     if decision.llm and decision.route not in {'build_model','scientific_workflow'}:
         st.caption(execution_model_line(decision.llm, purpose="Request understanding"))
@@ -286,6 +298,12 @@ def render_request(api, submit, render_las):
         return
     if getattr(decision, "investigation_plan", None):
         plan = decision.investigation_plan
+        st.subheader("Plan readiness")
+        st.write(plan.readiness.title())
+        if plan.readiness in {"blocked", "unsupported"}:
+            st.warning(
+                "This plan cannot currently be executed. Reusable individual steps do not make the overall investigation executable."
+            )
         st.subheader("Understanding")
         st.write(plan.understanding)
         st.subheader("Planning objectives")
@@ -310,6 +328,10 @@ def render_request(api, submit, render_las):
         for index, step in enumerate(plan.steps, start=1):
             st.markdown(f"**{index}. {step.method}** · {step.readiness.title()}")
             st.write(step.rationale)
+            if step.assumptions:
+                st.caption("Assumptions: " + "; ".join(step.assumptions))
+            if step.limitations:
+                st.caption("Limitations: " + "; ".join(step.limitations))
             if step.required_evidence:
                 st.caption("Needed: " + "; ".join(step.required_evidence))
             if step.expected_products:

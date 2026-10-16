@@ -100,3 +100,23 @@ class StudioDecision(ReferenceContract):
     continues_build: bool = False
     action: ContextAction | None = None
     command: str | None = Field(default=None, max_length=8000)
+
+    @model_validator(mode="after")
+    def investigation_is_non_executable(self):
+        if self.investigation_plan is None:
+            return self
+        if (
+            self.route != "ask_question"
+            or self.scientific is not None
+            or self.action not in {None, "general_question"}
+            or self.semantic_action is not None
+            or self.build_spec is not None
+            or self.replay_integrity is not None
+            or self.continues_build
+            or self.command is not None
+            or self.interpretation.operation not in {"question", "scientific"}
+            or self.interpretation.prepare_only
+            or self.interpretation.context_action not in {None, "general_question"}
+        ):
+            raise ValueError("Investigation plans must use the non-executing ask_question route")
+        return self

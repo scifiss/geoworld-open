@@ -26,6 +26,8 @@ class InvestigationEvidence(ReferenceContract):
 
         if len(json.dumps(self.metadata, allow_nan=False)) > 8192:
             raise ValueError("Investigation evidence metadata exceeds its size limit")
+        if self.status == "verified" and not (self.source_ref and self.source_ref.strip()):
+            raise ValueError("Verified investigation evidence requires a source reference")
         return self
 
 
@@ -74,6 +76,7 @@ class ScientificInvestigationPlan(ReferenceContract):
     @model_validator(mode="after")
     def validate_references_and_order(self):
         evidence_ids = [item.evidence_id for item in self.evidence]
+        evidence_by_id = {item.evidence_id: item for item in self.evidence}
         step_ids = [item.step_id for item in self.steps]
         if len(evidence_ids) != len(set(evidence_ids)):
             raise ValueError("Investigation evidence IDs must be unique")
@@ -88,6 +91,40 @@ class ScientificInvestigationPlan(ReferenceContract):
             if not set(step.depends_on) <= prior_steps:
                 raise ValueError("Investigation dependencies must refer to earlier steps")
             prior_steps.add(step.step_id)
-        if any(not set(finding.evidence_refs) <= known_evidence for finding in self.findings):
-            raise ValueError("Investigation finding references unknown evidence")
+        for finding in self.findings:
+            refs = set(finding.evidence_refs)
+            if not refs <= known_evidence:
+                raise ValueError("Investigation finding references unknown evidence")
+            if finding.claim_type in {
+                "measured_observation", "calculated_result", "supported_inference",
+                "user_reported_observation",
+            } and not refs:
+                raise ValueError(
+                    f"{finding.claim_type.replace('_', ' ').title()} findings require evidence references"
+                )
+            cited = [evidence_by_id[item] for item in finding.evidence_refs]
+            if finding.claim_type == "user_reported_observation":
+                if any(item.kind != "user_report" or item.status != "user_reported" for item in cited):
+                    raise ValueError("User-reported observations require user-reported evidence")
+            elif finding.claim_type == "measured_observation":
+                if any(
+                    item.status != "verified" or item.kind not in {"seismic_dataset", "well_log"}
+                    for item in cited
+                ):
+                    raise ValueError("Measured observations require verified measurement evidence")
+            elif finding.claim_type == "calculated_result":
+                if any(
+                    item.status != "verified" or item.kind != "saved_scientific_result"
+                    for item in cited
+                ):
+                    raise ValueError("Calculated results require verified saved scientific results")
+            elif finding.claim_type == "supported_inference":
+                admissible_kinds = {
+                    "seismic_dataset", "well_log", "saved_scientific_result", "world_state",
+                }
+                if any(
+                    item.status != "verified" or item.kind not in admissible_kinds
+                    for item in cited
+                ):
+                    raise ValueError("Supported inferences require verified scientific evidence")
         return self
