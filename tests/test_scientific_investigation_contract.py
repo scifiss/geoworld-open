@@ -128,6 +128,31 @@ def test_verified_evidence_requires_a_source_reference():
 
 
 @pytest.mark.parametrize(
+    "kind,status",
+    [("user_report", "verified"), ("seismic_dataset", "user_reported")],
+)
+def test_user_report_provenance_cannot_be_reclassified(kind, status):
+    with pytest.raises(ValidationError, match="User-reported status"):
+        InvestigationEvidence(
+            evidence_id="evidence:reported",
+            kind=kind,
+            status=status,
+            summary="A reported observation.",
+            source_ref="submitted_request",
+        )
+
+
+def test_missing_user_report_remains_missing_not_verified():
+    evidence = InvestigationEvidence(
+        evidence_id="evidence:missing-report",
+        kind="user_report",
+        status="missing",
+        summary="No user-reported observation was supplied.",
+    )
+    assert evidence.status == "missing"
+
+
+@pytest.mark.parametrize(
     "claim_type",
     ["measured_observation", "calculated_result", "supported_inference", "user_reported_observation"],
 )
@@ -295,8 +320,15 @@ def test_saved_assessment_investigation_plan_renders_without_submitting_a_job(mo
         summary="An observation reported by the requester.",
         source_ref="submitted_request",
     )
-    plan = make_plan(
-        evidence=[make_plan().evidence[0], user_report],
+    saved_result = InvestigationEvidence(
+        evidence_id="result:saved",
+        kind="saved_scientific_result",
+        status="verified",
+        summary="Prior verified difference result.",
+        source_ref="d" * 32,
+    )
+    plan_data = make_plan(
+        evidence=[make_plan().evidence[0], user_report, saved_result],
         findings=[
             InvestigationFinding(
                 claim_type="measured_observation",
@@ -313,7 +345,9 @@ def test_saved_assessment_investigation_plan_renders_without_submitting_a_job(mo
                 statement="A fluid-related change may explain the report.",
             ),
         ],
-    )
+    ).model_dump()
+    plan_data["steps"][1]["evidence_refs"] = [saved_result.evidence_id]
+    plan = ScientificInvestigationPlan.model_validate(plan_data)
     decision = StudioDecision(
         interpretation=StudioIntent(operation="question"),
         route="ask_question",
@@ -346,6 +380,8 @@ def test_saved_assessment_investigation_plan_renders_without_submitting_a_job(mo
     assert any("Assumptions: Surveys share acquisition geometry" in str(item) for item in rendered)
     assert any("Limitations: No field difference was computed." in str(item) for item in rendered)
     assert any("Evidence references: dataset:baseline (seismic dataset, verified)" in str(item) for item in rendered)
+    assert any("Step evidence references: dataset:baseline (seismic dataset, verified)" in str(item) for item in rendered)
+    assert any("Step evidence references: result:saved (saved scientific result, verified)" in str(item) for item in rendered)
     assert "Evidence-backed findings" in rendered
     assert "User-reported observations" in rendered
     assert "Hypotheses and unestablished statements" in rendered

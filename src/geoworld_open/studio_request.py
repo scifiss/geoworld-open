@@ -352,6 +352,13 @@ def render_request(api, submit, render_las):
             st.markdown(f"**{index}. {step.question}** · {step.readiness.title()}")
             st.write("Recommended method: " + step.method)
             st.write(step.rationale)
+            if step.evidence_refs:
+                cited = [
+                    f"{evidence_ref} ({evidence_by_id[evidence_ref].kind.replace('_', ' ')}, "
+                    f"{evidence_by_id[evidence_ref].status.replace('_', ' ')})"
+                    for evidence_ref in step.evidence_refs
+                ]
+                st.caption("Step evidence references: " + "; ".join(cited))
             if step.assumptions:
                 st.caption("Assumptions: " + "; ".join(step.assumptions))
             if step.limitations:

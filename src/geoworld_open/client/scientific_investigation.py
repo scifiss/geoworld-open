@@ -26,6 +26,13 @@ class InvestigationEvidence(ReferenceContract):
 
         if len(json.dumps(self.metadata, allow_nan=False)) > 8192:
             raise ValueError("Investigation evidence metadata exceeds its size limit")
+        if (
+            (self.status == "user_reported" and self.kind != "user_report")
+            or (self.kind == "user_report" and self.status == "verified")
+        ):
+            raise ValueError(
+                "User-reported status requires user_report evidence, which cannot be marked verified"
+            )
         if self.status == "verified" and not (self.source_ref and self.source_ref.strip()):
             raise ValueError("Verified investigation evidence requires a source reference")
         return self
