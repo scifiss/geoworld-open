@@ -288,7 +288,32 @@ def test_saved_assessment_investigation_plan_renders_without_submitting_a_job(mo
         def expander(self, *_args, **_kwargs):
             return nullcontext()
 
-    plan = make_plan()
+    user_report = InvestigationEvidence(
+        evidence_id="report:request",
+        kind="user_report",
+        status="user_reported",
+        summary="An observation reported by the requester.",
+        source_ref="submitted_request",
+    )
+    plan = make_plan(
+        evidence=[make_plan().evidence[0], user_report],
+        findings=[
+            InvestigationFinding(
+                claim_type="measured_observation",
+                statement="A verified survey observation is available.",
+                evidence_refs=["dataset:baseline"],
+            ),
+            InvestigationFinding(
+                claim_type="user_reported_observation",
+                statement="The requester described a possible amplitude change.",
+                evidence_refs=[user_report.evidence_id],
+            ),
+            InvestigationFinding(
+                claim_type="hypothesis",
+                statement="A fluid-related change may explain the report.",
+            ),
+        ],
+    )
     decision = StudioDecision(
         interpretation=StudioIntent(operation="question"),
         route="ask_question",
@@ -321,6 +346,11 @@ def test_saved_assessment_investigation_plan_renders_without_submitting_a_job(mo
     assert any("Assumptions: Surveys share acquisition geometry" in str(item) for item in rendered)
     assert any("Limitations: No field difference was computed." in str(item) for item in rendered)
     assert any("Evidence references: dataset:baseline (seismic dataset, verified)" in str(item) for item in rendered)
+    assert "Evidence-backed findings" in rendered
+    assert "User-reported observations" in rendered
+    assert "Hypotheses and unestablished statements" in rendered
+    assert not any("What the evidence supports" in str(item) for item in rendered)
+    assert any("fluid-related change may explain the report" in str(item) for item in rendered)
     assert any("Is a repeatable time-lapse amplitude change present?" in str(item) for item in rendered)
     assert any("Recommended method: Matched-support difference" in str(item) for item in rendered)
 

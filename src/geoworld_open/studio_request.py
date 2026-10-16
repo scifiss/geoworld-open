@@ -321,17 +321,32 @@ def render_request(api, submit, render_las):
         else:
             st.write("No verified scientific evidence was available for this request.")
         if plan.findings:
-            st.subheader("What the evidence supports")
             evidence_by_id = {item.evidence_id: item for item in plan.evidence}
-            for finding in plan.findings:
-                st.markdown(f"**{finding.claim_type.replace('_', ' ').title()}** — {finding.statement}")
-                if finding.evidence_refs:
-                    cited = [
-                        f"{evidence_ref} ({evidence_by_id[evidence_ref].kind.replace('_', ' ')}, "
-                        f"{evidence_by_id[evidence_ref].status.replace('_', ' ')})"
-                        for evidence_ref in finding.evidence_refs
-                    ]
-                    st.caption("Evidence references: " + "; ".join(cited))
+            finding_groups = (
+                (
+                    "Evidence-backed findings",
+                    {"measured_observation", "calculated_result", "supported_inference"},
+                ),
+                ("User-reported observations", {"user_reported_observation"}),
+                (
+                    "Hypotheses and unestablished statements",
+                    {"hypothesis", "not_established"},
+                ),
+            )
+            for heading, claim_types in finding_groups:
+                findings = [item for item in plan.findings if item.claim_type in claim_types]
+                if not findings:
+                    continue
+                st.subheader(heading)
+                for finding in findings:
+                    st.markdown(f"**{finding.claim_type.replace('_', ' ').title()}** — {finding.statement}")
+                    if finding.evidence_refs:
+                        cited = [
+                            f"{evidence_ref} ({evidence_by_id[evidence_ref].kind.replace('_', ' ')}, "
+                            f"{evidence_by_id[evidence_ref].status.replace('_', ' ')})"
+                            for evidence_ref in finding.evidence_refs
+                        ]
+                        st.caption("Evidence references: " + "; ".join(cited))
         st.subheader("Recommended investigation")
         for index, step in enumerate(plan.steps, start=1):
             st.markdown(f"**{index}. {step.question}** · {step.readiness.title()}")
