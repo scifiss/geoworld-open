@@ -63,6 +63,12 @@ class InvestigationStep(ReferenceContract):
     limitations: list[str] = Field(default_factory=list, max_length=32)
     validation: list[str] = Field(default_factory=list, max_length=32)
 
+    @model_validator(mode="after")
+    def capability_reference_is_complete(self):
+        if (self.capability_id is None) != (self.capability_version is None):
+            raise ValueError("Capability ID and version must be supplied together")
+        return self
+
 
 class ScientificInvestigationPlan(ReferenceContract):
     """Typed planning output; it is not scientific evidence or execution authority."""

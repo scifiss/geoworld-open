@@ -115,6 +115,20 @@ def test_plan_rejects_duplicate_evidence_ids():
         make_plan(evidence=[make_plan().evidence[0], duplicate])
 
 
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"capability_id": "cap:time-lapse-difference"},
+        {"capability_version": "1.2.0"},
+    ],
+)
+def test_investigation_step_requires_capability_id_and_version_together(changes):
+    step = make_plan().steps[0].model_dump()
+    step.update(changes)
+    with pytest.raises(ValidationError, match="must be supplied together"):
+        InvestigationStep.model_validate(step)
+
+
 def test_verified_evidence_requires_a_source_reference():
     for source_ref in (None, "", "  "):
         with pytest.raises(ValidationError, match="source reference"):
@@ -347,6 +361,8 @@ def test_saved_assessment_investigation_plan_renders_without_submitting_a_job(mo
         ],
     ).model_dump()
     plan_data["steps"][1]["evidence_refs"] = [saved_result.evidence_id]
+    plan_data["steps"][1]["capability_id"] = "cap:time-lapse-difference"
+    plan_data["steps"][1]["capability_version"] = "1.2.0"
     plan = ScientificInvestigationPlan.model_validate(plan_data)
     decision = StudioDecision(
         interpretation=StudioIntent(operation="question"),
@@ -382,6 +398,7 @@ def test_saved_assessment_investigation_plan_renders_without_submitting_a_job(mo
     assert any("Evidence references: dataset:baseline (seismic dataset, verified)" in str(item) for item in rendered)
     assert any("Step evidence references: dataset:baseline (seismic dataset, verified)" in str(item) for item in rendered)
     assert any("Step evidence references: result:saved (saved scientific result, verified)" in str(item) for item in rendered)
+    assert any("Capability: cap:time-lapse-difference · Version: 1.2.0" in str(item) for item in rendered)
     assert "Evidence-backed findings" in rendered
     assert "User-reported observations" in rendered
     assert "Hypotheses and unestablished statements" in rendered

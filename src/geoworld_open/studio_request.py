@@ -352,6 +352,8 @@ def render_request(api, submit, render_las):
             st.markdown(f"**{index}. {step.question}** · {step.readiness.title()}")
             st.write("Recommended method: " + step.method)
             st.write(step.rationale)
+            if step.capability_id is not None:
+                st.caption(f"Capability: {step.capability_id} · Version: {step.capability_version}")
             if step.evidence_refs:
                 cited = [
                     f"{evidence_ref} ({evidence_by_id[evidence_ref].kind.replace('_', ' ')}, "
