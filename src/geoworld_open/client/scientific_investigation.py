@@ -10,6 +10,15 @@ from geoworld_open.world.models import Identifier
 PlanTextItem = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000),
 ]
+PlanNarrative = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000),
+]
+PlanRequestText = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=8000),
+]
+PlanMethod = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=300),
+]
 PlanReference = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128),
 ]
@@ -24,7 +33,7 @@ class InvestigationEvidence(ReferenceContract):
     status: Literal[
         "verified", "user_reported", "missing", "incompatible", "unavailable",
     ]
-    summary: str = Field(min_length=1, max_length=1000)
+    summary: PlanTextItem
     source_ref: str | None = Field(default=None, max_length=128)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -53,15 +62,15 @@ class InvestigationFinding(ReferenceContract):
         "measured_observation", "user_reported_observation", "calculated_result",
         "supported_inference", "hypothesis", "not_established",
     ]
-    statement: str = Field(min_length=1, max_length=2000)
+    statement: PlanNarrative
     evidence_refs: list[PlanReference] = Field(default_factory=list, max_length=32)
 
 
 class InvestigationStep(ReferenceContract):
     step_id: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
-    question: str = Field(min_length=1, max_length=1000)
-    method: str = Field(min_length=1, max_length=300)
-    rationale: str = Field(min_length=1, max_length=2000)
+    question: PlanTextItem
+    method: PlanMethod
+    rationale: PlanNarrative
     required_evidence: list[PlanTextItem] = Field(default_factory=list, max_length=32)
     evidence_refs: list[PlanReference] = Field(default_factory=list, max_length=32)
     expected_products: list[PlanTextItem] = Field(default_factory=list, max_length=20)
@@ -83,8 +92,8 @@ class InvestigationStep(ReferenceContract):
 class ScientificInvestigationPlan(ReferenceContract):
     """Typed planning output; it is not scientific evidence or execution authority."""
 
-    request_text: str = Field(min_length=1, max_length=8000)
-    understanding: str = Field(min_length=1, max_length=2000)
+    request_text: PlanRequestText
+    understanding: PlanNarrative
     objectives: list[PlanTextItem] = Field(min_length=1, max_length=12)
     requested_products: list[PlanTextItem] = Field(default_factory=list, max_length=20)
     evidence: list[InvestigationEvidence] = Field(default_factory=list, max_length=64)

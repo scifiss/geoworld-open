@@ -150,6 +150,32 @@ def test_step_text_lists_require_bounded_nonblank_items(field, value):
 
 
 @pytest.mark.parametrize(
+    "location,field",
+    [
+        ("evidence", "summary"),
+        ("finding", "statement"),
+        ("step", "question"),
+        ("step", "method"),
+        ("step", "rationale"),
+        ("plan", "request_text"),
+        ("plan", "understanding"),
+    ],
+)
+def test_plan_scalar_text_requires_nonblank_content(location, field):
+    payload = make_plan().model_dump()
+    if location == "evidence":
+        payload["evidence"][0][field] = "  "
+    elif location == "finding":
+        payload["findings"][0][field] = "  "
+    elif location == "step":
+        payload["steps"][0][field] = "  "
+    else:
+        payload[field] = "  "
+    with pytest.raises(ValidationError):
+        ScientificInvestigationPlan.model_validate(payload)
+
+
+@pytest.mark.parametrize(
     "changes",
     [
         {"capability_id": "cap:time-lapse-difference"},
