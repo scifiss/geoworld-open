@@ -288,6 +288,9 @@ def render_request(api, submit, render_las):
         plan = decision.investigation_plan
         st.subheader("Understanding")
         st.write(plan.understanding)
+        st.subheader("Planning objectives")
+        for item in plan.objectives:
+            st.write(f"- {item}")
         if plan.requested_products:
             st.subheader("Requested products")
             for item in plan.requested_products:
